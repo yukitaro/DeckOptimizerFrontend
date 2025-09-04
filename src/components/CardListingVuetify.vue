@@ -2,18 +2,21 @@
 import { nextTick, onMounted, ref, reactive } from 'vue';
 import axios from 'axios';
 import Colors from './Colors.vue';
+import Mana from './Mana.vue';
 
 const count = ref(0)
 const base_url = "http://localhost:80";
 const cardData = ref()
 const cardDataAsync = ref([])
 const processedCardData = ref([])
-const initialLoadComplete = ref(false)
-const tableLoadKey = ref(0);
+const tableLoadKey = ref(0)
+const searchText = ref("")
+const itemsPerPage = ref(10)
+//const initialLoadComplete = ref(false)
 
 onMounted(() => {
     getCardDataAsync()
-    initialLoadComplete = true
+    //initialLoadComplete = true
     //getCardData()
 })
 
@@ -26,8 +29,8 @@ function getCardData() {
 async function getCardDataAsync() {
     const cardDataResponse = await axios.get(`${base_url}/cardsJSON/40`)
     //cardDataAsync.value.push(...arguments(cardDataResponse.data || []))
-    cardDataAsync.value.cardData = cardDataResponse.data;
-    processRawCardData()
+    //cardDataAsync.value.cardData = cardDataResponse.data;
+    processRawCardData(cardDataResponse.data)
 }
 
 /* export default {
@@ -46,30 +49,30 @@ async function getCardDataAsync() {
 }
  */
 
-    function processRawCardData() {
-        cardDataAsync.value.cardData.forEach((cardDataVal, index) => {
-            processedCardData.value.push({
-                id: cardDataVal.id,
-                name: cardDataVal.name,
-                set_name: cardDataVal.set_name,
-                type: cardDataVal.type,
-                colors: convertColorToName(cardDataVal.colors),
-                mana_cost: cardDataVal.mana_cost
-            })
-        });
-    };
+    function processRawCardData(data) {
+        processedCardData.value = data.map(cardDataVal => ({
+            id: cardDataVal.id,
+            name: cardDataVal.name,
+            set_name: cardDataVal.set_name,
+            type: cardDataVal.type,
+            colors: convertColorToName(cardDataVal.colors),
+            mana_cost: cardDataVal.mana_cost,
+            image_url: cardDataVal.image_url ?? ""
+        }))
+    }
+
 
     function convertColorToName(color) {
         switch (color) {
-            case 'W':
+            case '[\'W\']':
                 return 'plains'
-            case 'U':
+            case '[\'U\']':
                 return 'islands'
-            case 'B':
+            case '[\'B\']':
                 return 'swamps'
-            case 'R':
+            case '[\'R\']':
                 return 'mountains'
-            case 'G':
+            case '[\'G\']':
                 return 'forests'
             case '{W}':
                 return 'plains'
@@ -79,53 +82,41 @@ async function getCardDataAsync() {
     }
 
     async function filterByColor(colorValue) {
-        console.log('filter by ' + colorValue + '!!!\n');
         const cardDataResponse = await axios.get(`${base_url}/cardsJSON/40/${colorValue}`)
-        //cardDataAsync.value.push(...arguments(cardDataResponse.data || []))
-        cardDataAsync.value.cardData = cardDataResponse.data;
-        processedCardData.value = [];
-        processRawCardData();
-        tableLoadKey.value += 1;
+        processRawCardData(cardDataResponse.data);
+    }
+
+
+    async function searchByName() {
+        const cardDataResponse = await axios.get(`${base_url}/cards/name/${searchText.value}/40`)
+        processRawCardData(cardDataResponse.data);
     }
 
  </script>
 
 <template>
-    <button @click="getCardDataAsync">You clicked me {{ count }} times.</button>
     <!--<img src="../../../../data/images/island.svg"></img>-->
-    <v-btn size="small" rounded="sm" @click="filterByColor('plains')"><Colors :name="plains"/></v-btn>
-    <v-btn size="small" rounded="sm" @click="filterByColor('islands')"><Colors :name="islands"/></v-btn>
-    <v-btn size="small" rounded="sm" @click="filterByColor('swamps')"><Colors :name="swamps"/></v-btn>
-    <div v-if="initialLoadComplete">Loading Card Data</div>
-    <div v-else>
-        <v-data-table :items="processedCardData" :key="tableLoadKey">
-            <template v-slot:item.colors ="{ item }">
-                <Colors :name="item.colors" />
+    <v-btn size="small" rounded="sm" @click="filterByColor('plains')"><Colors color_name="plains" :colors="plains" /></v-btn>
+    <v-btn size="small" rounded="sm" @click="filterByColor('islands')"><Colors color_name="islands" :colors="islands"/></v-btn>
+    <v-btn size="small" rounded="sm" @click="filterByColor('swamps')"><Colors color_name="swamps" :colors="swamps"/></v-btn>
+    <v-btn size="small" rounded="sm" @click="filterByColor('mountains')"><Colors color_name="mountains" :colors="mountains"/></v-btn>
+    <v-btn size="small" rounded="sm" @click="filterByColor('forests')"><Colors color_name="forests" :colors="forests"/></v-btn>
+    <v-btn size="small" rounded="sm" @click="filterByColor('colorless')"><Colors color_name="colorless" :colors="forests"/></v-btn>
+    <v-text-field
+        label="Search"
+        v-model="searchText"
+        @keyup.enter="searchByName"
+    ></v-text-field>    
+    <div>
+        <v-data-table :items="processedCardData" :key="tableLoadKey" :items-per-page-options="[ {value: 10, title: '10'}, {value: 20, title: '20'}, { title: 'All', value: -1 }]" :items-per-page.sync="itemsPerPage">
+            <template v-slot:item.image_url="{ item }">
+                <a :href="item.image_url" target="_blank">image</a>
+            </template>
+            <template v-slot:item.colors="{ item }">
+                <Colors :color_name="item.colors" />
             </template>
         </v-data-table>
     </div>
-<!--    <table>
-        <thead>
-            <tr>
-                <th scope="col">Card Name</th>
-                <th scope="col">Set Name</th>
-                <th scope="col">Type</th>
-                <th scope="col">Mana Cost</th>
-                <th scope="col">Colors</th>
-                <th scope="col">Text</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr v-for="card in cardDataAsync?.value.cardData" :key="card.card_multiverse_id">
-                <td><a href="{{$card->image_url}}">{{card.name}}</a></td>
-                <td>{{card.set_name}}</td>
-                <td>{{card.type}}</td>
-                <td>{{card.mana_cost}}</td>
-                <td>{{card.colors}}</td>
-                <td>{{card.text}}</td>            
-            </tr>
-        </tbody>
-    </table> -->
 </template>
 
 <style scoped>
