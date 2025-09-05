@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick, onMounted, ref, reactive } from 'vue';
+import { computed, onMounted, ref, reactive } from 'vue';
 import axios from 'axios';
 import Colors from './Colors.vue';
 //import Mana from './Mana.vue';
@@ -7,15 +7,31 @@ import Colors from './Colors.vue';
 // From here: https://valgeirb.github.io/vue3-popper/guide/getting-started.html#manually-controlling-the-popper
 import Popper from "vue3-popper";
 
-const count = ref(0)
 const base_url = "http://localhost:80";
-const cardData = ref()
-const cardDataAsync = ref([])
 const processedCardData = ref([])
 const tableLoadKey = ref(0)
 const searchText = ref("")
 const itemsPerPage = ref(10)
 //const initialLoadComplete = ref(false)
+
+const allHeaders = ref([
+    //{ title: 'Id', value: 'id' },
+    { title: 'Name', value: 'name', width: '300px' },
+    { title: 'Set', value: 'set_name', width: '300px' },
+    { title: 'Type', value: 'type', width: '300px' },
+    { title: 'Colors', value: 'colors' },
+    { title: 'Mana Cost', value: 'mana_cost', width: '200px' },
+    { title: 'Image', value: 'image_url' },
+    { title: 'Text', value: 'card_text', width: '600px' },
+    //{ title: 'Name', value: 'name' },
+    //{ text: 'Name', value: 'name' },
+])
+
+//const headersToHide = ref(['id'])
+
+//const filteredHeaders = computed(() => {
+    //if 
+//})
 
 onMounted(() => {
     getCardDataAsync()
@@ -60,7 +76,8 @@ async function getCardDataAsync() {
             type: cardDataVal.type,
             colors: convertColorToName(cardDataVal.colors),
             mana_cost: cardDataVal.mana_cost,
-            image_url: cardDataVal.image_url ?? ""
+            image_url: cardDataVal.image_url ?? "",
+            card_text: cardDataVal.text
         }))
     }
 
@@ -111,10 +128,10 @@ async function getCardDataAsync() {
         @keyup.enter="searchByName"
     ></v-text-field>    
     <div>
-        <v-data-table :items="processedCardData" :key="tableLoadKey" :items-per-page-options="[ {value: 10, title: '10'}, {value: 20, title: '20'}, { title: 'All', value: -1 }]" :items-per-page.sync="itemsPerPage">
+        <v-data-table :headers=allHeaders :items="processedCardData" :key="tableLoadKey" :items-per-page-options="[ {value: 10, title: '10'}, {value: 20, title: '20'}, { title: 'All', value: -1 }]" :items-per-page.sync="itemsPerPage">
             <template v-slot:item.image_url="{ item }">
                 <!--<a :href="item.image_url" target="_blank">image</a> -->
-                <Popper hover arrow placement="left">
+                <Popper hover arrow placement="right">
                     <!-- Trigger slot: The element you hover over -->
                     <v-img :src="item.image_url" alt="Thumbnail" class="trigger-image" />
                     <!-- Content slot: The popover content -->
