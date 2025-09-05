@@ -2,7 +2,10 @@
 import { nextTick, onMounted, ref, reactive } from 'vue';
 import axios from 'axios';
 import Colors from './Colors.vue';
-import Mana from './Mana.vue';
+//import Mana from './Mana.vue';
+
+// From here: https://valgeirb.github.io/vue3-popper/guide/getting-started.html#manually-controlling-the-popper
+import Popper from "vue3-popper";
 
 const count = ref(0)
 const base_url = "http://localhost:80";
@@ -110,7 +113,17 @@ async function getCardDataAsync() {
     <div>
         <v-data-table :items="processedCardData" :key="tableLoadKey" :items-per-page-options="[ {value: 10, title: '10'}, {value: 20, title: '20'}, { title: 'All', value: -1 }]" :items-per-page.sync="itemsPerPage">
             <template v-slot:item.image_url="{ item }">
-                <a :href="item.image_url" target="_blank">image</a>
+                <!--<a :href="item.image_url" target="_blank">image</a> -->
+                <Popper hover arrow placement="left">
+                    <!-- Trigger slot: The element you hover over -->
+                    <v-img :src="item.image_url" alt="Thumbnail" class="trigger-image" />
+                    <!-- Content slot: The popover content -->
+                    <template #content>
+                        <div class="popover-content">
+                            <img :src="item.image_url" alt="Full size" />
+                        </div>
+                    </template>
+                </Popper>
             </template>
             <template v-slot:item.colors="{ item }">
                 <Colors :color_name="item.colors" />
@@ -134,4 +147,19 @@ async function getCardDataAsync() {
     th {
         background-color: #f2f2f2;
     }
+
+/* Scoped styles for this component */
+.trigger-image {
+  width: 60px; /* Adjust size as needed */
+  cursor: pointer;
+}
+
+.popover-content {
+  padding: 10px;
+}
+
+.popover-content img {
+  max-width: 300px; /* Adjust size of popover image */
+  height: auto;
+}    
 </style>

@@ -13,6 +13,8 @@ import App from './App.vue'
 // Composables
 import { createApp } from 'vue'
 
+import Popper from "vue3-popper"
+
 // Styles
 import 'unfonts.css'
 
@@ -20,4 +22,5 @@ const app = createApp(App)
 
 registerPlugins(app)
 
+app.component("Popper", Popper)
 app.mount('#app')
