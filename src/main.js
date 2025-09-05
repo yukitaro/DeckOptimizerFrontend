@@ -16,7 +16,8 @@ import { createApp } from 'vue'
 import Popper from "vue3-popper"
 
 // Styles
-import 'unfonts.css'
+//import 'unfonts.css'
+import './style.css'
 
 const app = createApp(App)
 
