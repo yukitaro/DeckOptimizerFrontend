@@ -15,6 +15,8 @@ import { createApp } from 'vue'
 
 import Popper from "vue3-popper"
 
+import router from './router'
+
 // Styles
 import 'unfonts.css'
 
@@ -23,4 +25,5 @@ const app = createApp(App)
 registerPlugins(app)
 
 app.component("Popper", Popper)
+app.use(router)
 app.mount('#app')

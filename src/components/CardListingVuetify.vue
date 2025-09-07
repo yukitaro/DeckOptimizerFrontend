@@ -13,9 +13,17 @@ const tableLoadKey = ref(0)
 const searchText = ref("")
 const itemsPerPage = ref(10)
 //const initialLoadComplete = ref(false)
+const selectedRarity = ref(['common', 'uncommon', 'rare', 'mythic'])
+const colorsToggle = ref( {
+    plains: '',
+    islands: '',
+    swamps: '',
+    mountains: '',
+    forests: '',
+    colorless: '',
+})
 
 const allHeaders = ref([
-    //{ title: 'Id', value: 'id' },
     { title: 'Name', value: 'name', width: '300px' },
     { title: 'Set', value: 'set_name', width: '300px' },
     { title: 'Type', value: 'type', width: '300px' },
@@ -23,20 +31,10 @@ const allHeaders = ref([
     { title: 'Mana Cost', value: 'mana_cost', width: '200px' },
     { title: 'Image', value: 'image_url' },
     { title: 'Text', value: 'card_text', width: '600px' },
-    //{ title: 'Name', value: 'name' },
-    //{ text: 'Name', value: 'name' },
 ])
-
-//const headersToHide = ref(['id'])
-
-//const filteredHeaders = computed(() => {
-    //if 
-//})
 
 onMounted(() => {
     getCardDataAsync()
-    //initialLoadComplete = true
-    //getCardData()
 })
 
 function getCardData() {
@@ -52,29 +50,13 @@ async function getCardDataAsync() {
     processRawCardData(cardDataResponse.data)
 }
 
-/* export default {
-    data() {
-        return {
-            cardData: [],
-        }
-    },
-   methods: {
-        getCardData(){
-            axios
-                .get(`${base_url}'/cards/30`)
-                .then(response => {this.cardData = response.data.matchingCards})
-        }
-   },
-}
- */
-
     function processRawCardData(data) {
         processedCardData.value = data.map(cardDataVal => ({
             id: cardDataVal.id,
             name: cardDataVal.name,
             set_name: cardDataVal.set_name,
             type: cardDataVal.type,
-            colors: convertColorToName(cardDataVal.colors),
+            colors: convertColorToName(cardDataVal.colorIdentities),
             mana_cost: cardDataVal.mana_cost,
             image_url: cardDataVal.image_url ?? "",
             card_text: cardDataVal.text
@@ -84,15 +66,15 @@ async function getCardDataAsync() {
 
     function convertColorToName(color) {
         switch (color) {
-            case '[\'W\']':
+            case 'W':
                 return 'plains'
-            case '[\'U\']':
+            case 'U':
                 return 'islands'
-            case '[\'B\']':
+            case 'B':
                 return 'swamps'
-            case '[\'R\']':
+            case 'R':
                 return 'mountains'
-            case '[\'G\']':
+            case 'G':
                 return 'forests'
             case '{W}':
                 return 'plains'
@@ -106,22 +88,66 @@ async function getCardDataAsync() {
         processRawCardData(cardDataResponse.data);
     }
 
+    function toggleColorFilters(colorValue) {
+        colorsToggle.value[colorValue] = colorsToggle.value[colorValue] === '' ? 'bg-primary' : '';
+    }
 
     async function searchByName() {
-        const cardDataResponse = await axios.get(`${base_url}/cards/name/${searchText.value}/40`)
+        if (selectedRarity.value.length === 0) {
+            selectedRarity.value = "common, uncommon, rare, mythic";
+        }
+
+        const cardDataResponse = await axios.get(`${base_url}/cards/name/${searchText.value}/rarities/${selectedRarity.value}`, {
+            params: {
+                limit: 100
+            }
+        });
         processRawCardData(cardDataResponse.data);
     }
+
+    async function searchAgainstSetData() {
+        if (selectedRarity.value.length === 0) {
+            selectedRarity.value = "common, uncommon, rare, mythic";
+        }
+
+        const cardDataResponse = await axios.get(`${base_url}/cardsfromsets/name/${searchText.value}/rarities/${selectedRarity.value}`, {
+            params: {
+                limit: 100
+            }
+        });
+        processRawCardData(cardDataResponse.data);
+    }
+
 
  </script>
 
 <template>
     <!--<img src="../../../../data/images/island.svg"></img>-->
-    <v-btn size="small" rounded="sm" @click="filterByColor('plains')"><Colors color_name="plains" :colors="plains" /></v-btn>
-    <v-btn size="small" rounded="sm" @click="filterByColor('islands')"><Colors color_name="islands" :colors="islands"/></v-btn>
-    <v-btn size="small" rounded="sm" @click="filterByColor('swamps')"><Colors color_name="swamps" :colors="swamps"/></v-btn>
-    <v-btn size="small" rounded="sm" @click="filterByColor('mountains')"><Colors color_name="mountains" :colors="mountains"/></v-btn>
-    <v-btn size="small" rounded="sm" @click="filterByColor('forests')"><Colors color_name="forests" :colors="forests"/></v-btn>
-    <v-btn size="small" rounded="sm" @click="filterByColor('colorless')"><Colors color_name="colorless" :colors="forests"/></v-btn>
+    <v-container fluid>
+        <v-row>
+            <v-btn :class="colorsToggle['plains']" size="small" rounded="sm" @click="toggleColorFilters('plains')"><Colors color_name="plains"  /></v-btn>
+            <v-btn :class="colorsToggle['islands']" size="small" rounded="sm" @click="toggleColorFilters('islands')"><Colors color_name="islands" /></v-btn>
+            <v-btn :class="colorsToggle['swamps']" size="small" rounded="sm" @click="toggleColorFilters('swamps')"><Colors color_name="swamps" /></v-btn>
+            <v-btn :class="colorsToggle['mountains']" size="small" rounded="sm" @click="toggleColorFilters('mountains')"><Colors color_name="mountains" /></v-btn>
+            <v-btn :class="colorsToggle['forests']" size="small" rounded="sm" @click="toggleColorFilters('forests')"><Colors color_name="forests" /></v-btn>
+            <v-btn :class="colorsToggle['colorless']" size="small" rounded="sm" @click="toggleColorFilters('colorless')"><Colors color_name="colorless" /></v-btn>
+            <v-btn @click="searchAgainstSetData" density="compact" color="secondary">Search - Sets</v-btn>
+        </v-row>
+        <v-row>
+            <v-checkbox v-model="selectedRarity"
+                label="Common" value="common" hide-details>
+            </v-checkbox>
+            <v-checkbox v-model="selectedRarity"
+                label="Uncommon" value="uncommon" hide-details>
+            </v-checkbox>
+            <v-checkbox v-model="selectedRarity"
+                label="Rare" value="rare" hide-details>
+            </v-checkbox>
+            <v-checkbox v-model="selectedRarity"
+                label="Mythic" value="mythic" hide-details>
+            </v-checkbox>
+        </v-row>
+    </v-container>
     <v-text-field
         label="Search"
         v-model="searchText"

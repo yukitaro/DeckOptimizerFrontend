@@ -1,9 +1,12 @@
 <template>
+  <nav>
+    <RouterLink to="/">Search</RouterLink>
+    <RouterLink to="/decks">Decks</RouterLink>
+  </nav>
   <v-app>
     <v-main>
-      <CardListingVuetify />
+      <RouterView />
     </v-main>
-
     <AppFooter />
   </v-app>
 </template>
