@@ -22,9 +22,10 @@ const myCustomLightTheme = {
     'on-surface-variant': '#EEEEEE',
     primary: '#1867C0',
     'primary-darken-1': '#91cbf9',
-    'primary-darken-2': '#cd8c23',
+    'primary-darken-2': '#e3f2fd',
     secondary: '#48A9A6',
     'secondary-darken-1': '#191d1dff',
+    'secondary-darken-2': '#e3f2fd',
     tertiary: '#cd8c23',
     'tertiary-lighten-1': '#de9d55',
     error: '#B00020',
@@ -54,11 +55,9 @@ const myCustomLightTheme = {
 // https://vuetifyjs.com/en/introduction/why-vuetify/#feature-guides
 export default createVuetify({
   theme: {
-    defaultTheme: 'system',
+    defaultTheme: 'myCustomLightTheme',
     variations: {
-      colors:  ['primary', 'secondary', 'tertiary'],
-      lighten: 2,
-      darken: 2,
+      colors:  ['primary', 'secondary']
     },
     themes: {
       myCustomLightTheme
