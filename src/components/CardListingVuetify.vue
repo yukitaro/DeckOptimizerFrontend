@@ -76,8 +76,6 @@ async function getCardDataAsync() {
                 return 'mountains'
             case 'G':
                 return 'forests'
-            case '{W}':
-                return 'plains'
             default:
                 break;
         }
