@@ -151,24 +151,25 @@ async function getDecksFromDB() {
     }    
 }
 
-function getNumericalManaCost(name, mana_cost) {
+function getNumericalManaCost(mana_cost) {
   let match = numericalManaCostRegEx.exec(mana_cost);
 
-  if (match !== null) {
+/*   if (match !== null) {
     console.log('for getNumericalManaCost, found a match: ' + match[1]);
   } else {
-    console.log('for getNumericalManaCost, no match for: ' + name + ' Original mana_cost: ' + mana_cost);
+    console.log('for getNumericalManaCost, no match for: ' + mana_cost);
   }
+ */
   return match === null ? '' : match[1];
 }
 
 function getColorManaCost(mana_cost) {
    const matches = Array.from(mana_cost.matchAll(colorSymbolRegex)).map(match => match[1]);
 
-   if (matches !== null) {
+/*    if (matches !== null) {
     console.log('matches : ' + JSON.stringify(matches));
    }
-
+ */
    return matches;
   }
 
@@ -349,7 +350,7 @@ onMounted(() => {
                       <p>
                         <strong>{{ card.card_count }}x</strong>
                         <!-- hover only on name -->
-                        <span class="card-name" mouseover="hoveredCard = card">{{ card.name }}</span>
+                        <span class="card-name" @mouseover="hoveredCard = card">{{ card.name }}</span>
                         —
                         <span class="card-type">{{ card.type }}</span>
 
