@@ -7,6 +7,8 @@ import axios from 'axios';
 const base_url = "http://localhost:80";
 const router = useRouter()
 const route = useRoute()
+const createDeckDiv = ref(false)
+const model = ref('1')
 const tab = ref('Deck Import')
 const deckName = ref('')
 const deckDescription = ref('')
@@ -151,13 +153,13 @@ async function getDecksFromDB() {
     }    
 }
 
-function getNumericalManaCost(name, mana_cost) {
+function getNumericalManaCost(mana_cost) {
   let match = numericalManaCostRegEx.exec(mana_cost);
 
   if (match !== null) {
     console.log('for getNumericalManaCost, found a match: ' + match[1]);
   } else {
-    console.log('for getNumericalManaCost, no match for: ' + name + ' Original mana_cost: ' + mana_cost);
+    console.log('for getNumericalManaCost, no match');
   }
   return match === null ? '' : match[1];
 }
@@ -189,19 +191,6 @@ function getColorManaCost(mana_cost) {
         }
   }
 
-// 1️⃣ Computed “active” card: hoveredCard or firstInDeck
-const activeCard = computed(() => {
-  return (
-    hoveredCard.value ||
-    cardsInSelectedDeck.value[0] ||
-    { image_url_to_use: null, name: '' }
-  )
-})
-
-// 2️⃣ When the deck’s cards load, clear any stale hover so we default to first card
-watch(cardsInSelectedDeck, (newVal) => {
-  hoveredCard.value = null
-})
 
 onMounted(() => {
     getDecksFromDB()
@@ -287,89 +276,94 @@ onMounted(() => {
                 </v-form>
           </v-card-text>
         </v-card>
-        <v-card
-          v-if="tab === 'Deck Display'"
-          class="pa-4 custom-card-background"
-        >
-          <!-- Deck selector -->
-          <v-autocomplete
-            v-model="selectedDeck"
-            label="Select a Deck"
-            :items="listOfStoredDecks"
-            item-title="deck_name"
-            return-object
-            class="mb-4"
-          >
-            <template v-slot:item="{ item, props }">
-              <v-list-item v-bind="props">
-                <v-list-item-title>{{ item.deck_name }}</v-list-item-title>
-                <v-list-item-subtitle v-if="item.description">
-                  {{ item.description }}
-                </v-list-item-subtitle>
-              </v-list-item>
-            </template>
-          </v-autocomplete>
+<v-card v-if="tab === 'Deck Display'" class="pa-4 custom-card-background">
+  <!-- Deck selector -->
+  <v-autocomplete
+    v-model="selectedDeck"
+    label="Select a Deck"
+    :items="listOfStoredDecks"
+    item-title="deck_name"
+    return-object
+    class="mb-4"
+  >
+    <template v-slot:item="{ item, props }">
+      <v-list-item v-bind="props">
+        <v-list-item-title>{{ item.deck_name }}</v-list-item-title>
+        <v-list-item-subtitle v-if="item.description">
+          {{ item.description }}
+        </v-list-item-subtitle>
+      </v-list-item>
+    </template>
+  </v-autocomplete>
 
-          <!-- Flex container: preview on the left, list on the right -->
-          <div class="deck-display-flex">
-            <!-- Sticky Preview Pane -->
-            <div class="preview-pane">
-              <v-img
-                v-if="activeCard.image_url_to_use"
-                :src="activeCard.image_url_to_use"
-                alt="Card preview"
-                width="300"
-                aspect-ratio="0.714"
-                class="mb-2"
-              >
-                <template #placeholder>
-                  <div class="image-fallback">Loading…</div>
-                </template>
-                <template #error>
-                  <div class="image-fallback">No preview available</div>
-                </template>
-              </v-img>
+  <div class="deck-display-flex">
+    <!-- Left: Scrollable Card List -->
+    <div class="card-list-container">
+      <div class="card-list">
+        <div v-for="type in typeHierarchy" :key="type">
+          <h3>{{ type }}</h3>
 
-              <div v-else class="image-fallback mb-2">
-                No preview available
-              </div>
+          <div v-if="groupedCards[type].length">
+            <div
+              v-for="card in groupedCards[type]"
+              :key="card.id"
+              class="card-line"
+            >
+              <p>
+                <strong>{{ card.card_count }}x</strong>
+                <!-- Hover only on this span -->
+                <span
+                  class="card-name"
+                  @mouseover="hoveredCard = card"
+                >
+                  {{ card.name }}
+                </span>
+                —
+                <span class="card-type">{{ card.type }}</span>
 
-              <p class="preview-name">
-                {{ activeCard.name || 'Hover a card…' }}
+                <span
+                  v-if="card.mana_cost"
+                >
+                  <Colors
+                    :mana_cost="getNumericalManaCost(card.mana_cost)"
+                  />
+                </span>
+
+                <span
+                  v-for="color in getColorManaCost(card.mana_cost)"
+                  :key="color"
+                >
+                  <Colors :color_name="mapColorCodeToName(color)" />
+                </span>
               </p>
             </div>
-
-            <!-- Scrollable Card List -->
-            <div class="card-list-container">
-              <div class="card-list">
-                <div v-for="type in typeHierarchy" :key="type">
-                  <h3>{{ type }}</h3>
-                  <div v-if="groupedCards[type].length">
-                    <div v-for="card in groupedCards[type]" :key="card.id" class="card-line">
-                      <p>
-                        <strong>{{ card.card_count }}x</strong>
-                        <!-- hover only on name -->
-                        <span class="card-name" mouseover="hoveredCard = card">{{ card.name }}</span>
-                        —
-                        <span class="card-type">{{ card.type }}</span>
-
-                        <span v-if="card.mana_cost">
-                          <Colors :mana_cost="getNumericalManaCost(card.mana_cost)" />
-                        </span>
-                        <span v-for="color in getColorManaCost(card.mana_cost)" :key="color">
-                          <Colors :color_name="mapColorCodeToName(color)" />
-                        </span>
-                      </p>
-                    </div>
-                  </div>
-                  <p v-else class="empty-group">
-                    No {{ type.toLowerCase() }} cards
-                  </p>
-                </div>
-              </div>
-            </div>
           </div>
-        </v-card>
+
+          <p v-else class="empty-group">
+            No {{ type.toLowerCase() }} cards
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Sticky Preview Pane -->
+    <div
+      class="preview-pane"
+      v-if="hoveredCard"
+      @mouseleave="hoveredCard = null"
+    >
+      <v-img
+        :src="hoveredCard.image_url_to_use"
+        alt="Card preview"
+        width="240"
+        class="mb-2"
+      />
+      <p class="preview-name">{{ hoveredCard.name }}</p>
+    </div>
+  </div>
+</v-card>
+
+
         <v-card v-if="tab===3">
           <v-card-text>
             Content for tab {{ i }}
@@ -471,32 +465,15 @@ onMounted(() => {
   font-style: italic;
 }
 
-/* Always reserves the space */
 .preview-pane {
   position: sticky;
   top: 100px;
-  align-self: flex-start;
-
-  width: 300px;               /* user-requested width */
-  min-height: 420px;          /* reserve roughly 300×420 card area */
   padding: 8px;
   background-color: #fff;
   border: 1px solid #ccc;
   box-shadow: 0 2px 6px rgba(0,0,0,0.2);
   border-radius: 4px;
   text-align: center;
-}
-
-/* fallback box */
-.image-fallback {
-  width: 100%;
-  height: 100%;
-  background-color: #f0f0f0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #888;
-  font-size: 14px;
 }
 
 /* Wraps list + preview side by side */
