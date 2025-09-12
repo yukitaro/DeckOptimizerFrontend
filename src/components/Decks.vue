@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Colors from './Colors.vue';
+import DeckComparison from './DeckComparison.vue';
 import axios from 'axios';
 
 const base_url = "http://localhost:80";
@@ -20,7 +21,25 @@ const selectedDeck = ref()
 const cardsInSelectedDeck = ref([])
 const hoveredCard = ref(null)
 
-const tabLabels = ['Deck Import', 'Deck Display', 'Deck Swapping'];
+// Mk. ][
+const deckSearch = ref('')
+const selectedDeckMk2 = ref(null)
+
+const filteredDecks = computed(() => {
+  const query = deckSearch.value.toLowerCase()
+  return listOfStoredDecks.value.filter(deck => {
+    const name = deck.deck_name?.toLowerCase() || ''
+    const desc = deck.description?.toLowerCase() || ''
+    return name.includes(query) || desc.includes(query)
+  })
+})
+
+function selectDeck(deck) {
+  selectedDeck.value = deck
+}
+
+
+const tabLabels = ['Deck Import', 'Deck Display', 'Deck Display 2', 'Deck Comparison', 'Deck Swapping'];
 const typeHierarchy = ['Creature', 'Artifact', 'Instant', 'Sorcery', 'Enchantment', 'Land'];
 
 const numericalManaCostRegEx = /\{(X|\d+)\}/
@@ -143,11 +162,12 @@ async function getDecksFromDB() {
                 deck_id: deckData.id,
                 deck_name: deckData.deck_name,
                 description: deckData.description,
+                //displayName: `${deck.deck_name} — ${deck.description || ''}`
             }))
             console.log("Complete return value: " + JSON.stringify(listOfStoredDecks.value));
         }
     } catch (error) {
-        console.log("oops an error!");
+        console.log("oops an error!" + error);
     }    
 }
 
@@ -220,7 +240,7 @@ onMounted(() => {
 
       <template v-slot:extension>
         <v-tabs v-model="tab" align-tabs="center">
-          <v-tab v-for="label in tabLabels" :key="index" :value="label">
+          <v-tab v-for="label in tabLabels" :key="label" :value="label">
             {{ label }}
           </v-tab>
         </v-tabs>
@@ -288,27 +308,18 @@ onMounted(() => {
                 </v-form>
           </v-card-text>
         </v-card>
-        <v-card
-          v-if="tab === 'Deck Display'"
-          class="pa-4 custom-card-background"
-        >
+        <v-card v-if="tab === 'Deck Display'" class="pa-4 custom-card-background">
           <!-- Deck selector -->
-          <v-autocomplete
-            v-model="selectedDeck"
-            label="Select a Deck"
-            :items="listOfStoredDecks"
-            item-title="deck_name"
-            return-object
-            class="mb-4"
-          >
-            <template v-slot:item="{ item, props }">
-              <v-list-item v-bind="props">
-                <v-list-item-title>{{ item.deck_name }}</v-list-item-title>
-                <v-list-item-subtitle v-if="item.description">
-                  {{ item.description }}
-                </v-list-item-subtitle>
-              </v-list-item>
-            </template>
+<v-autocomplete
+  v-model="selectedDeck"
+  :items="listOfStoredDecks"
+  item-title="displayName"
+  item-value="deck_id"
+  return-object
+  label="Select a Deck"
+  :menu-props="{ maxHeight: '300px' }"
+  hide-details>
+
           </v-autocomplete>
 
           <!-- Flex container: preview on the left, list on the right -->
@@ -371,11 +382,102 @@ onMounted(() => {
             </div>
           </div>
         </v-card>
-        <v-card v-if="tab===3">
-          <v-card-text>
-            Content for tab {{ i }}
-          </v-card-text>
-        </v-card>
+        <v-card v-if="tab === 'Deck Display 2'" class="pa-4 custom-card-background">
+<!-- 🔍 Deck Selector -->
+  <v-text-field
+    v-model="deckSearch"
+    label="Search decks"
+    placeholder="Goblin, Rakdos, Mono Blue Terror…"
+    clearable
+    class="mb-4"
+  />
+
+  <v-autocomplete
+    v-model="selectedDeck"
+    :items="filteredDecks"
+    item-title="deck_name"
+    item-value="deck_id"
+    return-object
+    label="Select a Deck"
+    class="mb-4"
+  >
+    <template #item="{ item, props }">
+      <v-list-item v-bind="props" :key="item.deck_id">
+        <v-list-item-title>{{ item.deck_name }}</v-list-item-title>
+        <v-list-item-subtitle v-if="item.description">
+          {{ item.description }}
+        </v-list-item-subtitle>
+      </v-list-item>
+    </template>
+    <template #selection="{ item }">
+      <span>{{ item.deck_name }}</span>
+    </template>
+  </v-autocomplete>
+
+  <!-- 🧠 Deck Display -->
+  <div class="deck-display-flex">
+    <!-- 👁️ Preview Pane -->
+    <div class="preview-pane">
+      <v-img
+        v-if="activeCard.image_url_to_use"
+        :src="activeCard.image_url_to_use"
+        alt="Card preview"
+        width="300"
+        aspect-ratio="0.714"
+        class="mb-2"
+      >
+        <template #placeholder>
+          <div class="image-fallback">Loading…</div>
+        </template>
+        <template #error>
+          <div class="image-fallback">No preview available</div>
+        </template>
+      </v-img>
+      <div v-else class="image-fallback mb-2">No preview available</div>
+      <p class="preview-name">{{ activeCard.name || 'Hover a card…' }}</p>
+    </div>
+
+    <!-- 📜 Deck List -->
+    <div class="card-list-container">
+      <div class="card-list">
+        <div v-for="type in typeHierarchy" :key="type">
+          <h3>{{ type }}</h3>
+          <div v-if="groupedCards[type].length">
+            <div
+              v-for="card in groupedCards[type]"
+              :key="card.id"
+              class="card-line"
+            >
+              <p>
+                <strong>{{ card.card_count }}x</strong>
+                <span class="card-name" @mouseover="hoveredCard = card">
+                  {{ card.name }}
+                </span>
+                —
+                <span class="card-type">{{ card.type }}</span>
+                <span v-if="card.mana_cost">
+                  <Colors :mana_cost="getNumericalManaCost(card.mana_cost)" />
+                </span>
+                <span
+                  v-for="color in getColorManaCost(card.mana_cost)"
+                  :key="color"
+                >
+                  <Colors :color_name="mapColorCodeToName(color)" />
+                </span>
+              </p>
+            </div>
+          </div>
+          <p v-else class="empty-group">
+            No {{ type.toLowerCase() }} cards
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</v-card>
+<v-card v-if="tab === 'Deck Comparison'" class="pa-4 custom-card-background">
+  <DeckComparison :listOfStoredDecks = listOfStoredDecks />
+</v-card>
     </v-window>
   </v-card>
     <v-dialog v-model="showErrorOverlay" max-width="600">
@@ -525,4 +627,34 @@ onMounted(() => {
   padding-right: 12px;
   height: 100%;  
 }
+
+.deck-browser {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.deck-list {
+  flex: 1;
+  max-height: 500px;
+  overflow-y: auto;
+  border-right: 1px solid #ccc;
+  padding-right: 16px;
+}
+
+.deck-entry {
+  padding: 8px;
+  cursor: pointer;
+  border-bottom: 1px solid #eee;
+}
+
+.deck-entry:hover {
+  background-color: #f5f5f5;
+}
+
+.deck-preview {
+  flex: 1;
+  padding-left: 16px;
+}
+
 </style>
