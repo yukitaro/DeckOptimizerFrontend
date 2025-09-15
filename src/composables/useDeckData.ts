@@ -1,13 +1,15 @@
+import { Deck, Card } from '@/utils/types'
 import { ref } from 'vue'
 import axios from 'axios'
+import { retrieveCardsForDeck } from '@/utils/deckUtils';
 
 const base_url = "http://localhost:80";
 
-const cardsInSelectedDeck = ref([])
+const cardsInSelectedDeck = ref<Card[][]>([])
+const listOfStoredDecks = ref<Deck[]>([])
 
 export function useDeckData() {
-  const listOfStoredDecks = ref([])
-  const selectedDecks = ref([])
+  const selectedDecks = ref<Deck[]>([])
 
   async function fetchCardsForDeck(deck_id: number) {
     try {
@@ -31,6 +33,17 @@ export function useDeckData() {
     }
   }
 
+  async function getCardsForDeckByIndex(deck_id: number, index: number) {
+    try {
+      const cards = await await retrieveCardsForDeck(deck_id)
+
+      cardsInSelectedDeck.value[index] = cards
+    } catch (err) {
+      console.error(`Failed to fetch cards for deck ${deck_id}`, err)
+      return []
+    }
+  }
+
   function setDecks(decks: any[]) {
     listOfStoredDecks.value = decks
   }
@@ -40,6 +53,7 @@ export function useDeckData() {
     selectedDecks,
     setDecks,
     getCardsForDeck,
+    getCardsForDeckByIndex,
     cardsInSelectedDeck
   }
 }

@@ -12,6 +12,7 @@ import {
   getColorManaCost,
   mapColorCodeToName,
 } from '@/utils/deckUtils'
+import MultiDeckComparison from './MultiDeckComparison.vue';
 
 const base_url = "http://localhost:80";
 const router = useRouter()
@@ -24,11 +25,10 @@ const externalLink = ref('')
 const errorMessages = ref([])
 const showErrorOverlay = ref(false)
 const showErrorSnackbar = ref(false)
-const listOfStoredDecks = ref([])
 const selectedDeck = ref()
 const hoveredCard = ref(null)
 
-const { cardsInSelectedDeck, getCardsForDeck } = useDeckData()
+const { cardsInSelectedDeck, getCardsForDeck, listOfStoredDecks, setDecks } = useDeckData()
 
 // Mk. ][
 const deckSearch = ref('')
@@ -43,7 +43,7 @@ const filteredDecks = computed(() => {
   })
 })
 
-const tabLabels = ['Deck Import', 'Card List Test', 'Deck Display', 'Deck Display 2', 'Deck Comparison', 'Deck Swapping'];
+const tabLabels = ['Deck Import', 'Card List Test', 'Multi Deck Compare', 'Deck Display', 'Deck Display 2', 'Deck Comparison', 'Deck Swapping'];
 const typeHierarchy = ['Creature', 'Artifact', 'Instant', 'Sorcery', 'Enchantment', 'Land'];
 
 const groupedCards = computed(() => {
@@ -73,14 +73,6 @@ const groupedCards = computed(() => {
 
   return groups;
 });
-
-const tableHeaders = [
-  { text: 'Card Name', value: 'card_name' },
-  { text: 'Mana Cost', value: 'mana_cost' },
-  { text: 'Type', value: 'type' },
-  { text: 'Power', value: 'power' },
-  { text: 'Toughness', value: 'toughness' }
-]
 
 const search = computed({
   get() {
@@ -154,13 +146,12 @@ async function getDecksFromDB() {
 
         if (response.data.errors && response.data.errors.length > 0) {
         } else {
-            listOfStoredDecks.value = response.data.map(deckData => ({
+          setDecks(response.data.map(deckData => ({
                 deck_id: deckData.id,
                 deck_name: deckData.deck_name,
                 description: deckData.description,
-                //displayName: `${deck.deck_name} — ${deck.description || ''}`
-            }))
-            console.log("Complete return value: " + JSON.stringify(listOfStoredDecks.value));
+            })))
+          console.log("Complete return value: " + JSON.stringify(listOfStoredDecks.value));
         }
     } catch (error) {
         console.log("oops an error!" + error);
@@ -184,7 +175,6 @@ watch(cardsInSelectedDeck, (newVal) => {
 onMounted(() => {
     getDecksFromDB()
 })
-
 </script>
 
 <template>
@@ -293,19 +283,20 @@ onMounted(() => {
           <pre>Hovered in parent: {{ hoveredCard }}</pre>          
           </div>
         </v-card>
+        <v-card v-if="tab === 'Multi Deck Compare'" class="pa-4 custom-card-background">
+            <MultiDeckComparison />
+        </v-card>
         <v-card v-if="tab === 'Deck Display'" class="pa-4 custom-card-background">
           <!-- Deck selector -->
-<v-autocomplete
-  v-model="selectedDeck"
-  :items="listOfStoredDecks"
-  item-title="displayName"
-  item-value="deck_id"
-  return-object
-  label="Select a Deck"
-  :menu-props="{ maxHeight: '300px' }"
-  hide-details>
-
-          </v-autocomplete>
+        <v-autocomplete
+          v-model="selectedDeck"
+          :items="listOfStoredDecks"
+          item-title="displayName"
+          item-value="deck_id"
+          return-object
+          label="Select a Deck"
+          :menu-props="{ maxHeight: '300px' }"
+          hide-details/>
 
           <!-- Flex container: preview on the left, list on the right -->
           <div class="deck-display-flex">

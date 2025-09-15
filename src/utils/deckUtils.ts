@@ -1,6 +1,9 @@
 // Regex patterns
 export const numericalManaCostRegEx = /\{(X|\d+)\}/
 export const colorSymbolRegex = /\{([RGBUW]\/[RGBUW]|[RGBUW]|)\}/g
+import axios from 'axios';
+
+const base_url = "http://localhost:80";
 
 // Extracts numerical mana cost from a string like "{3}{R}"
 export function getNumericalManaCost(mana_cost: string): string {
@@ -29,4 +32,9 @@ export function mapColorCodeToName(colorCode: string): string {
     default:
       return 'colorless'
   }
+}
+
+export async function retrieveCardsForDeck(deck_id: any) {
+    const response = await axios.get(`${base_url}/api/cardsInDeck/${deck_id}`)
+    return response.data || []
 }
