@@ -4,6 +4,14 @@ import { useRoute, useRouter } from 'vue-router'
 import Colors from './Colors.vue';
 import DeckComparison from './DeckComparison.vue';
 import axios from 'axios';
+import { useDeckData } from '@/composables/useDeckData'
+import GroupedCardList from './GroupedCardList.vue';
+
+import {
+  getNumericalManaCost,
+  getColorManaCost,
+  mapColorCodeToName,
+} from '@/utils/deckUtils'
 
 const base_url = "http://localhost:80";
 const router = useRouter()
@@ -18,8 +26,9 @@ const showErrorOverlay = ref(false)
 const showErrorSnackbar = ref(false)
 const listOfStoredDecks = ref([])
 const selectedDeck = ref()
-const cardsInSelectedDeck = ref([])
 const hoveredCard = ref(null)
+
+const { cardsInSelectedDeck, getCardsForDeck } = useDeckData()
 
 // Mk. ][
 const deckSearch = ref('')
@@ -34,16 +43,8 @@ const filteredDecks = computed(() => {
   })
 })
 
-function selectDeck(deck) {
-  selectedDeck.value = deck
-}
-
-
-const tabLabels = ['Deck Import', 'Deck Display', 'Deck Display 2', 'Deck Comparison', 'Deck Swapping'];
+const tabLabels = ['Deck Import', 'Card List Test', 'Deck Display', 'Deck Display 2', 'Deck Comparison', 'Deck Swapping'];
 const typeHierarchy = ['Creature', 'Artifact', 'Instant', 'Sorcery', 'Enchantment', 'Land'];
-
-const numericalManaCostRegEx = /\{(X|\d+)\}/
-const colorSymbolRegex = /\{([RGBUW]\/[RGBUW]|[RGBUW]|)\}/g
 
 const groupedCards = computed(() => {
   const groups = {};
@@ -101,12 +102,7 @@ watch(showErrorSnackbar, (val) => {
 watch(selectedDeck, async (newDeck) => {
   if (newDeck) {
     try {
-      //await axios.get(`${base_url}/sanctum/csrf-cookie`, { withCredentials: true });
-      const response = await axios.get(`${base_url}/api/cardsInDeck/${newDeck.deck_id}`)
-      //const response = axios.get(`http://localhost:8000/api/cardsInDeck/${newDeck.deck_id}`)
-      cardsInSelectedDeck.value = response.data
-      //console.log("Fetched deck details:", response.data)
-      // Do something with the response, like storing it in another ref
+      await getCardsForDeck(newDeck.deck_id);
     } catch (error) {
       console.error("Error fetching deck:", error)
     }
@@ -170,45 +166,6 @@ async function getDecksFromDB() {
         console.log("oops an error!" + error);
     }    
 }
-
-function getNumericalManaCost(mana_cost) {
-  let match = numericalManaCostRegEx.exec(mana_cost);
-
-/*   if (match !== null) {
-    console.log('for getNumericalManaCost, found a match: ' + match[1]);
-  } else {
-    console.log('for getNumericalManaCost, no match for: ' + mana_cost);
-  }
- */
-  return match === null ? '' : match[1];
-}
-
-function getColorManaCost(mana_cost) {
-   const matches = Array.from(mana_cost.matchAll(colorSymbolRegex)).map(match => match[1]);
-
-/*    if (matches !== null) {
-    console.log('matches : ' + JSON.stringify(matches));
-   }
- */
-   return matches;
-  }
-
-  function mapColorCodeToName(colorCode) {
-        switch (colorCode) {
-            case 'W':
-                return 'plains'
-            case 'U':
-                return 'islands'
-            case 'B':
-                return 'swamps'
-            case 'R':
-                return 'mountains'
-            case 'G':
-                return 'forests'
-            default:
-                break;
-        }
-  }
 
 // 1️⃣ Computed “active” card: hoveredCard or firstInDeck
 const activeCard = computed(() => {
@@ -308,6 +265,34 @@ onMounted(() => {
                 </v-form>
           </v-card-text>
         </v-card>
+        <v-card v-if="tab === 'Card List Test'" class="pa-4 custom-card-background">
+          <!-- 🧠 Deck Display -->
+          <div class="deck-display-flex">
+            <!-- 👁️ Preview Pane -->
+            <div class="preview-pane">
+              <v-img
+                v-if="activeCard.image_url_to_use"
+                :src="activeCard.image_url_to_use"
+                alt="Card preview"
+                width="300"
+                aspect-ratio="0.714"
+                class="mb-2"
+              >
+                <template #placeholder>
+                  <div class="image-fallback">Loading…</div>
+                </template>
+                <template #error>
+                  <div class="image-fallback">No preview available</div>
+                </template>
+              </v-img>
+              <div v-else class="image-fallback mb-2">No preview available</div>
+              <p class="preview-name">{{ activeCard.name || 'Hover a card…' }}</p>
+            </div>
+          <!-- <GroupedCardList :cards-in-selected-deck="groupedCards" /> -->           
+          <GroupedCardList v-model:hovered-card="hoveredCard"/>
+          <pre>Hovered in parent: {{ hoveredCard }}</pre>          
+          </div>
+        </v-card>
         <v-card v-if="tab === 'Deck Display'" class="pa-4 custom-card-background">
           <!-- Deck selector -->
 <v-autocomplete
@@ -330,7 +315,7 @@ onMounted(() => {
                 v-if="activeCard.image_url_to_use"
                 :src="activeCard.image_url_to_use"
                 alt="Card preview"
-                width="300"
+                width="360"
                 aspect-ratio="0.714"
                 class="mb-2"
               >
@@ -384,35 +369,35 @@ onMounted(() => {
         </v-card>
         <v-card v-if="tab === 'Deck Display 2'" class="pa-4 custom-card-background">
 <!-- 🔍 Deck Selector -->
-  <v-text-field
-    v-model="deckSearch"
-    label="Search decks"
-    placeholder="Goblin, Rakdos, Mono Blue Terror…"
-    clearable
-    class="mb-4"
-  />
+          <v-text-field
+            v-model="deckSearch"
+            label="Search decks"
+            placeholder="Goblin, Rakdos, Mono Blue Terror…"
+            clearable
+            class="mb-4"
+          />
 
-  <v-autocomplete
-    v-model="selectedDeck"
-    :items="filteredDecks"
-    item-title="deck_name"
-    item-value="deck_id"
-    return-object
-    label="Select a Deck"
-    class="mb-4"
-  >
-    <template #item="{ item, props }">
-      <v-list-item v-bind="props" :key="item.deck_id">
-        <v-list-item-title>{{ item.deck_name }}</v-list-item-title>
-        <v-list-item-subtitle v-if="item.description">
-          {{ item.description }}
-        </v-list-item-subtitle>
-      </v-list-item>
-    </template>
-    <template #selection="{ item }">
-      <span>{{ item.deck_name }}</span>
-    </template>
-  </v-autocomplete>
+          <v-autocomplete
+            v-model="selectedDeck"
+            :items="filteredDecks"
+            item-title="deck_name"
+            item-value="deck_id"
+            return-object
+            label="Select a Deck"
+            class="mb-4"
+          >
+            <template #item="{ item, props }">
+              <v-list-item v-bind="props" :key="item.deck_id">
+                <v-list-item-title>{{ item.deck_name }}</v-list-item-title>
+                <v-list-item-subtitle v-if="item.description">
+                  {{ item.description }}
+                </v-list-item-subtitle>
+              </v-list-item>
+            </template>
+            <template #selection="{ item }">
+              <span>{{ item.deck_name }}</span>
+            </template>
+          </v-autocomplete>
 
   <!-- 🧠 Deck Display -->
   <div class="deck-display-flex">
