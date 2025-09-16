@@ -44,16 +44,27 @@ export function useDeckData() {
     }
   }
 
+  function reloadStoredDecks() {
+    // function here to reload the list of stored decks.
+    // should call this after we import a new deck
+    // bonus points if we only retrieve the new one(s)
+  }
+
   function setDecks(decks: any[]) {
     listOfStoredDecks.value = decks
   }
 
+  function resetCardsForSelectedDecks(newDecks: Deck[]) {
+      cardsInSelectedDeck.value = newDecks.map(() => [])
+  }
+
   return {
     listOfStoredDecks,
-    selectedDecks,
-    setDecks,
     getCardsForDeck,
     getCardsForDeckByIndex,
-    cardsInSelectedDeck
+    cardsInSelectedDeck,
+    resetCardsForSelectedDecks,
+    selectedDecks,
+    setDecks,
   }
 }

@@ -23,9 +23,12 @@ export interface MatrixRow {
   name: string
   type: string
   counts: number[]
+  mana_cost?: string
 }
 
 export interface ComparisonItem {
   name: string;
-  [key: string]: string | number;
+  counts: number[]
+  mana_cost?: string
+  [key: string]: string | number | number[] | undefined
 }

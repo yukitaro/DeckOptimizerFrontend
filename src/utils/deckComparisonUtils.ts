@@ -15,6 +15,7 @@ export function buildComparisonMatrix(decks: Deck[]): MatrixRow[] {
           id: card.id,
           name: card.name,
           type: card.type,
+          mana_cost: card.mana_cost,
           counts: Array(decks.length).fill(0),
         })
       }
