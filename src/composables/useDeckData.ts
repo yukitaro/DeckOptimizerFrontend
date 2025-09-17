@@ -8,6 +8,8 @@ const base_url = "http://localhost:80";
 const cardsInSelectedDeck = ref<Card[][]>([])
 const listOfStoredDecks = ref<Deck[]>([])
 
+const dictOfCardImageUrls = ref<Record<string, string>>({})
+
 export function useDeckData() {
   const selectedDecks = ref<Deck[]>([])
 
@@ -15,7 +17,14 @@ export function useDeckData() {
     try {
       const response = await axios.get(`${base_url}/api/cardsInDeck/${deck_id}`)
 
-      cardsInSelectedDeck.value = response.data
+      const cards: Card[] = response.data
+      cardsInSelectedDeck.value.push(cards)
+      // Populate image URL dictionary
+      for (const card of response.data) {
+        if (card.name && card.image_url_to_use) {
+          dictOfCardImageUrls.value[card.name] = card.image_url_to_use
+        }
+      }
     } catch (err) {
       console.error(`Failed to fetch cards for deck ${deck_id}`, err)
       return []
@@ -24,9 +33,15 @@ export function useDeckData() {
 
   async function getCardsForDeckByIndex(deck_id: number, index: number) {
     try {
-      const cards = await retrieveCardsForDeck(deck_id)
+      const cards: Card[] = await retrieveCardsForDeck(deck_id)
 
       cardsInSelectedDeck.value[index] = cards
+
+      for (const card of cards) {
+        if (card.name && card.image_url_to_use) {
+          dictOfCardImageUrls.value[card.name] = card.image_url_to_use
+        }
+      }      
     } catch (err) {
       console.error(`Failed to fetch cards for deck ${deck_id}`, err)
       return []
@@ -72,6 +87,7 @@ export function useDeckData() {
   return {
     addDeckForComparison,
     cardsInSelectedDeck,
+    dictOfCardImageUrls,
     getCardsForDeck,
     getCardsForDeckByIndex,
     listOfStoredDecks,

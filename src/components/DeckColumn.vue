@@ -12,7 +12,7 @@ const { sharedCardRows } = toRefs(props)
 </script>
 <template>
     <v-card class="deck-column-card" outlined>
-    <v-card-title>{{ deck.name }}</v-card-title>
+    <v-card-title>{{ deck.deck_name }}</v-card-title>
     <v-card-subtitle v-if="deck.archetype">{{ deck.archetype }}</v-card-subtitle>
     <v-divider />
     <v-card-text>

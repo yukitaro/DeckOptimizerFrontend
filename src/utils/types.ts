@@ -7,6 +7,7 @@ export interface Card {
   type: string
   card_count: number
   mana_cost?: string
+  image_url_to_use?: string
 }
 
 /** A deck selected for comparison */

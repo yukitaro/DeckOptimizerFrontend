@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import draggable from 'vuedraggable'
 import { useDeckData } from '@/composables/useDeckData'
 import { buildComparisonMatrix } from '@/utils/deckComparisonUtils'
@@ -14,6 +14,7 @@ const {
   cardsInSelectedDeck,
   getCardsForDeckByIndex,
   listOfStoredDecks,
+  moveDeckImmutable,
   resetCardsForSelectedDecks,
   selectedDecks
 } = useDeckData()
@@ -28,6 +29,7 @@ const typeHierarchy = [
   'Land'
 ]
 const selectedTypes = ref<string[]>([...typeHierarchy])
+const deckWidths = ref<number[]>([])
 
 function toggleType(type: string) {
   const i = selectedTypes.value.indexOf(type)
@@ -77,7 +79,7 @@ const groupedItems = computed(() => {
     if (matchedType) {
       const item: ComparisonItem = { name: row.name, counts: [...row.counts], mana_cost: row.mana_cost ?? '', }
       row.counts.forEach((count, idx) => {
-        item[`col${idx}`] = count > 0 ? count : '-'
+        item[`col${idx}`] = count > 0 ? count : 0
       })
       groups[matchedType].push(item)
     }
@@ -85,56 +87,87 @@ const groupedItems = computed(() => {
   return groups
 })
 
-const sharedCardRows = computed(() => {
-  const groups = groupedItems.value as Record<string, ComparisonItem[]>
-  return typeHierarchy.flatMap(type => groups[type] ?? [])
-})
-
-// 7️⃣ Generate table headers
-const headers = computed(() => [
-  { text: 'Card', value: 'name', align: 'start' },
-  { text: 'Color', value: 'color', align: 'end' },  
-  ...decks.value.map((d, i) => ({
-    text: d.deck_name,
-    value: `col${i}`,
-    align: 'center',
-    width: '80px'
-  }))
-])
-
 // 8️⃣ Fetch cards when decks change
-watch(selectedDecks, (newDecks) => {
-    resetCardsForSelectedDecks(newDecks)
-console.log('Decks in watcher:', newDecks)
+// COMBINE: combobox selection → explicit handler
+async function handleSelectionChange(newSelection: Deck[]) {
+  // 1️⃣ update selection
+  selectedDecks.value = newSelection
 
-    newDecks.forEach((deck, i) => {
-      if (!cardsInSelectedDeck.value[i]?.length) {
-        getCardsForDeckByIndex(deck.deck_id, i)
-      }
-    })
-  },
-  { immediate: true }
+  // 2️⃣ reset all card‐lists
+  resetCardsForSelectedDecks(newSelection)
+
+  // 3️⃣ fetch each deck’s cards
+  //    await if you need them in order
+  await nextTick()
+  newSelection.forEach((deck, i) => {
+    if (!cardsInSelectedDeck.value[i]?.length) {
+      getCardsForDeckByIndex(deck.deck_id, i)
+    }
+  })
+}
+
+// DRAG: reorder decks + their card groups
+function onDeckReorder(evt: { oldIndex: number; newIndex: number }) {
+  moveDeckImmutable(evt.oldIndex, evt.newIndex)
+
+  const movedWidth = deckWidths.value.splice(evt.oldIndex, 1)[0]
+  deckWidths.value.splice(evt.newIndex, 0, movedWidth)
+}
+
+const lockedDeckIndexes = computed(() =>
+  selectedDecks.value
+    .map((deck, i) => deck.locked ? i : null)
+    .filter(i => i !== null)
 )
 
-// 3️⃣ Reorder decks on drag
-function onDeckReorder(evt: { oldIndex: number; newIndex: number }) {
-  const moved = selectedDecks.value.splice(evt.oldIndex, 1)[0]
-  selectedDecks.value.splice(evt.newIndex, 0, moved)
+function getLockedTotal(card: ComparisonItem): number {
+  return lockedDeckIndexes.value.reduce((sum, i) => {
+    const count = card[`col${i}`]
+    return typeof count === 'number' ? sum + count : sum
+  }, 0)
+}
+
+function toggleDeckLock(index: number) {
+  const deck = selectedDecks.value[index]
+  deck.locked = !deck.locked
+}
+
+watch(selectedDecks, (newDecks) => {
+  deckWidths.value = newDecks.map(() => 120) // default width per deck
+}, { immediate: true })
+
+function startResize(index: number, e: MouseEvent) {
+  const startX = e.clientX
+  const startWidth = deckWidths.value[index]
+
+  function onMouseMove(ev: MouseEvent) {
+    const delta = ev.clientX - startX
+    deckWidths.value[index] = Math.max(60, startWidth + delta)
+  }
+
+  function onMouseUp() {
+    window.removeEventListener('mousemove', onMouseMove)
+    window.removeEventListener('mouseup', onMouseUp)
+  }
+
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
 }
 </script>
 
 <template>
   <div class="deck-comparison-container">
-  <!-- Deck Picker -->
+    <!-- 1) Combobox uses @update:model-value instead of v-model -->
     <v-combobox
-      v-model="selectedDecks"
       :items="listOfStoredDecks"
+      :model-value="selectedDecks"
+      @update:modelValue="handleSelectionChange"
       item-title="deck_name"
       item-value="deck_id"
       return-object
       multiple
-      label="Compare Decks"
       chips
+      label="Compare Decks"
       class="mb-4"
     />
 
@@ -151,55 +184,210 @@ function onDeckReorder(evt: { oldIndex: number; newIndex: number }) {
       />
     </div>
 
-    <!-- Draggable Deck Columns -->
-    <v-row no-gutters class="deck-columns">
-      <draggable
-        v-model="selectedDecks"
-        item-key="deck_id"
-        @end="onDeckReorder"
-        :animation="200"
-        tag="v-row"
+<div class="comparison-row header-row">
+  <div class="card-row header-card-row">
+    <div class="card-name-left">Card</div>
+    <div class="card-mana-right">Mana</div>
+  </div>
+
+  <draggable
+    tag="div"
+    class="deck-columns"
+    :list="selectedDecks"
+    item-key="deck_id"
+    @end="onDeckReorder"
+    :animation="200"
+  >
+    <template #item="{ element, index }">
+      <div class="card-cell card-count deck-header-cell">
+        <span>{{ element.deck_name }}</span>
+        <v-icon
+          size="18"
+          class="ml-1 lock-icon"
+          :color="element.locked ? 'green' : 'grey'"
+          @click="toggleDeckLock(index)"
+        >
+          {{ element.locked ? 'mdi-lock' : 'mdi-lock-open' }}
+        </v-icon>
+      <div
+        class="resize-handle"
+        @mousedown="startResize(index, $event)" />
+      </div>
+    </template>
+  </draggable>
+
+      <div class="card-cell card-total">Total</div>
+    </div>
+
+    <!-- Grouped Rows by Type -->
+    <template v-for="type in typeHierarchy" :key="type">
+      <div class="type-banner">{{ type }}</div>
+
+      <div
+        v-for="card in groupedItems[type]"
+        :key="card.name"
+        class="comparison-row"
       >
-        <template #item="{ element, index }">
-          <v-col cols="auto">
-            <DeckColumn
-              :deck="element"
-              :index="index"
-              :sharedCardRows="sharedCardRows"
-            />
-          </v-col>
-        </template>
-      </draggable>
-    </v-row>
+        <CardRow :card="card" />
+
+        <draggable
+          tag="div"
+          class="deck-columns"
+          :list="selectedDecks"
+          item-key="deck_id"
+          :animation="200"
+          :disabled="true"
+        >
+          <template #item="{ index }">
+            <div class="card-cell card-count" :style="{ width: deckWidths[index] + 'px' }">
+              {{ card[`col${index}`] ?? '-' }}
+            </div>
+          </template>
+        </draggable>
+
+        <div class="card-cell card-total">
+          {{ getLockedTotal(card) }}
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 
-<style>
-.comparison-container {
+<style lang="scss" scoped>
+.deck-comparison-container {
+  padding: 16px;
   overflow-x: auto;
+  font-size: 14px;
 }
 
+/* Type filter chips */
 .type-filter {
   margin-bottom: 1rem;
   display: flex;
   flex-wrap: wrap;
+  gap: 8px;
 }
 
-.type-banner td {
-  background: #e0e0e0;
+/* Main comparison table container */
+.comparison-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 600px;
+  overflow-x: auto;
+  background-color: #fdfdfd;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  padding-bottom: 12px;
+  overflow-x: auto;
+}
+
+/* Type section headers */
+.type-banner {
+  background-color: #dbe4ff;
   font-weight: bold;
   text-transform: uppercase;
-  padding: 6px 8px;
+  padding: 8px 12px;
+  border-top: 1px solid #b0c4ff;
+  border-bottom: 1px solid #b0c4ff;
+  color: #1a237e;
+  letter-spacing: 0.5px;
 }
 
-.no-overlap {
-  padding: 8px;
-  background: #ffecec;
-  color: #a00;
+/* Shared row layout */
+.comparison-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #eee;
+  padding: 4px 8px;
+}
+
+/* Header row */
+.header-row {
   font-weight: bold;
-  text-align: center;
+  background-color: #f0f4ff;
+  border-bottom: 2px solid #b0c4ff;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
+/* Shared cell styles */
+.card-cell {
+  flex-shrink: 0;
+  padding: 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* CardRow container */
+.card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-width: 320px;
+  max-width: 400px;
+  padding: 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+.header-card-row {
+  background-color: #f0f4ff;
+  font-weight: bold;
+  border-bottom: 2px solid #b0c4ff;
+}
+
+.card-name-left {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-mana-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  justify-content: flex-end;
+}
+
+/* Deck count columns */
+.card-count {
+  width: 80px;
+  text-align: center;
+  font-weight: bold;
+}
+
+/* Locked total column */
+.card-total {
+  width: 80px;
+  text-align: center;
+  font-weight: bold;
+  color: #1b5e20;
+  border-left: 1px solid #ccc;
+}
+
+/* Draggable deck columns */
+.deck-columns {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+/* Color symbol alignment */
+.color-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Optional: highlight common/partial cards */
 .common {
   font-weight: bold;
   color: #1b5e20;
@@ -209,92 +397,21 @@ function onDeckReorder(evt: { oldIndex: number; newIndex: number }) {
   color: #f57c00;
 }
 
-.card-name-cell {
-  max-width: 240px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.card-color-cell {
-  text-align: right;
-  white-space: nowrap;
-}
-
-/* .header-row th {
-  background: #f5f5f5;
-  font-weight: bold;
-  padding: 6px 8px;
-  text-align: center;
-}
- */
 .deck-header-cell {
-  text-align: center;
-  white-space: nowrap;
-}
-
-.card-name {
-  margin-right: 6px;
-}
-
-.card-name-text {
-  font-weight: 500;
-  padding-right: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.mana-symbols {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 2px;
-  flex-wrap: nowrap;
-}
-
-.header-row th,
-.comparison-table td {
-  padding: 6px 8px;
-  vertical-align: middle;
-}
-
-.color-symbol {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: 2px;
-}
-
-.card-name-wrapper {
-  display: flex;
-  max-width: 480px;
   justify-content: space-between;
-  align-items: center;
-  width: 100%;
-}
-
-.card-name-left {
-  text-align: left;
-  flex: 1;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.card-mana-right {
-  text-align: right;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.deck-comparison-container {
-  padding: 16px;
-  overflow-x: auto;
-}
-
-.deck-columns {
-  display: flex;
-  gap: 12px;
+.resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
 }
 </style>

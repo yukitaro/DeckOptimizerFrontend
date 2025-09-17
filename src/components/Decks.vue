@@ -367,7 +367,6 @@ onMounted(() => {
             clearable
             class="mb-4"
           />
-
           <v-autocomplete
             v-model="selectedDeck"
             :items="filteredDecks"

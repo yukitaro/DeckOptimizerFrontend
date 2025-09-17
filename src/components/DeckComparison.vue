@@ -14,8 +14,7 @@ onMounted(() => {
 })
 
 async function fetchCardsForDeck(deck_id) {
-  // Replace with your actual fetch logic
-    //const response = await axios.get(`${base_url}/api/cardsInDeck/${deck_id}`)
+   //const response = await axios.get(`${base_url}/api/cardsInDeck/${deck_id}`)
     const response = await axios.get(`${base_url}/api/cardsInDeck/${deck_id}`)
       //const response = axios.get(`http://localhost:8000/api/cardsInDeck/${newDeck.deck_id}`)
     return response.data || []
