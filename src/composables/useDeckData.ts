@@ -11,17 +11,6 @@ const listOfStoredDecks = ref<Deck[]>([])
 export function useDeckData() {
   const selectedDecks = ref<Deck[]>([])
 
-  async function fetchCardsForDeck(deck_id: number) {
-    try {
-      const response = await fetch(`/api/decks/${deck_id}/cards`)
-      const data = await response.json()
-      return data.cards || []
-    } catch (err) {
-      console.error(`Failed to fetch cards for deck ${deck_id}`, err)
-      return []
-    }
-  }
-
   async function getCardsForDeck(deck_id: number) {
     try {
       const response = await axios.get(`${base_url}/api/cardsInDeck/${deck_id}`)
@@ -35,7 +24,7 @@ export function useDeckData() {
 
   async function getCardsForDeckByIndex(deck_id: number, index: number) {
     try {
-      const cards = await await retrieveCardsForDeck(deck_id)
+      const cards = await retrieveCardsForDeck(deck_id)
 
       cardsInSelectedDeck.value[index] = cards
     } catch (err) {
@@ -55,14 +44,39 @@ export function useDeckData() {
   }
 
   function resetCardsForSelectedDecks(newDecks: Deck[]) {
-      cardsInSelectedDeck.value = newDecks.map(() => [])
+    cardsInSelectedDeck.value = newDecks.map(() => [])
+  }
+
+  function addDeckForComparison(deck: Deck) {
+    selectedDecks.value.push(deck)
+  }
+
+  function removeDeck(deckId: number) {
+    selectedDecks.value = selectedDecks.value.filter(d => d.deck_id !== deckId)
+  }
+
+  function moveDeckImmutable(from: number, to: number) {
+    const decks = [...selectedDecks.value]
+    const cards = [...cardsInSelectedDeck.value]
+
+    const deck = decks.splice(from, 1)[0]
+    decks.splice(to, 0, deck)
+
+    const cardGroup = cards.splice(from, 1)[0]
+    cards.splice(to, 0, cardGroup)
+
+    selectedDecks.value = decks
+    cardsInSelectedDeck.value = cards
   }
 
   return {
-    listOfStoredDecks,
+    addDeckForComparison,
+    cardsInSelectedDeck,
     getCardsForDeck,
     getCardsForDeckByIndex,
-    cardsInSelectedDeck,
+    listOfStoredDecks,
+    moveDeckImmutable,
+    removeDeck,
     resetCardsForSelectedDecks,
     selectedDecks,
     setDecks,

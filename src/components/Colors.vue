@@ -1,37 +1,59 @@
 <script setup>
 import { toRefs } from 'vue'
+import ForestsIcon from '@/components/icons/ForestsIcon.vue'
+import IslandsIcon from '@/components/icons/IslandsIcon.vue'
+import MountainsIcon from '@/components/icons/MountainsIcon.vue'
+import PlainsIcon from '@/components/icons/PlainsIcon.vue'
+import SwampsIcon from '@/components/icons/SwampsIcon.vue'
 
 const props = defineProps({
   color_name: String,
-  mana_cost: String
+  mana_cost: String,
+  size: {
+    type: [String, Number],
+    default: 25
+  }
 })
 const { color_name } = toRefs(props)
 const { mana_cost } = toRefs(props)
+
+const iconMap = {
+  islands: IslandsIcon,
+  plains: PlainsIcon,
+  swamps: SwampsIcon,
+  mountains: MountainsIcon,
+  forests: ForestsIcon
+}
 </script>
 
 <template>
-  <span class="mana-gap"><svg v-if="mana_cost !== undefined && mana_cost !== ''" width="26" height="26" viewBox="0 0 30 30">
-    <!-- Light grey circle -->
-    <circle cx="15" cy="15" r="14.5" fill="#e0e0e0" stroke="#ccc" stroke-width="2" />
-    <!-- Mana cost text -->
-    <text x="15" y="21" text-anchor="middle" font-size="18" fill="#333" font-family="gotham, Arial, sans-serif">
+<span class="mana-gap" v-if="mana_cost !== undefined && mana_cost !== ''">
+  <svg :width="size" :height="size" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="15" cy="15" r="13" fill="#e0e0e0" stroke="#ccc" stroke-width="2" />
+    <text
+      x="15"
+      y="15"
+      dy="0.35em"
+      text-anchor="middle"
+      font-size="16"
+      fill="#333"
+      font-family="gotham, Arial, sans-serif">
       {{ mana_cost }}
-    </text>    
+    </text>
   </svg>
-  </span>  
+</span>
   <span v-if="color_name !== undefined && color_name !== ''" class="mana-gap">
-  <img v-if="color_name === 'islands'" src="@/assets/islands.svg" />
-  <img v-else-if="color_name === 'plains'" src="@/assets/plains.svg" />
-  <img v-else-if="color_name === 'swamps'" src="@/assets/swamps.svg" />
-  <img v-else-if="color_name === 'mountains'" src="@/assets/mountains.svg" />
-  <img v-else-if="color_name === 'forests'" src="@/assets/forests.svg" />
-  <img v-else src="@/assets/colorless.svg" />
+    <component
+      :is="iconMap[color_name] || null"
+      v-if="iconMap[color_name]"
+      :size="size"
+    />
   </span>
 </template>
 
 <style>
 .mana-gap {
-  margin-right: 2px;
-  margin-left: 2px;
+  margin-right: 1px;
+  margin-left: 1px;
 }
 </style>

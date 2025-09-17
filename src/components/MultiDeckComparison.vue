@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import draggable from 'vuedraggable'
 import { useDeckData } from '@/composables/useDeckData'
 import { buildComparisonMatrix } from '@/utils/deckComparisonUtils'
-import Colors from './Colors.vue'
+//import CardRow from './CardRow.vue'
+//import Colors from './Colors.vue'
 import type { ComparisonItem, Deck } from '@/utils/types'
+import DeckColumn from './DeckColumn.vue'
 import { getColorManaCost, getNumericalManaCost, mapColorCodeToName} from '@/utils/deckUtils'
 
 // 1️⃣ Grab selected decks and their cards
@@ -35,8 +38,8 @@ function toggleType(type: string) {
 // 3️⃣ Shape to Deck[]
 const decks = computed<Deck[]>(() =>
   selectedDecks.value.map((d, i) => ({
-    id: d.id,
-    name: d.name,
+    deck_id: d.deck_id,
+    deck_name: d.deck_name,
     cards: cardsInSelectedDeck.value[i] || [],
     locked: d.locked
   }))
@@ -82,11 +85,17 @@ const groupedItems = computed(() => {
   return groups
 })
 
+const sharedCardRows = computed(() => {
+  const groups = groupedItems.value as Record<string, ComparisonItem[]>
+  return typeHierarchy.flatMap(type => groups[type] ?? [])
+})
+
 // 7️⃣ Generate table headers
 const headers = computed(() => [
   { text: 'Card', value: 'name', align: 'start' },
+  { text: 'Color', value: 'color', align: 'end' },  
   ...decks.value.map((d, i) => ({
-    text: d.name,
+    text: d.deck_name,
     value: `col${i}`,
     align: 'center',
     width: '80px'
@@ -96,6 +105,7 @@ const headers = computed(() => [
 // 8️⃣ Fetch cards when decks change
 watch(selectedDecks, (newDecks) => {
     resetCardsForSelectedDecks(newDecks)
+console.log('Decks in watcher:', newDecks)
 
     newDecks.forEach((deck, i) => {
       if (!cardsInSelectedDeck.value[i]?.length) {
@@ -105,73 +115,62 @@ watch(selectedDecks, (newDecks) => {
   },
   { immediate: true }
 )
+
+// 3️⃣ Reorder decks on drag
+function onDeckReorder(evt: { oldIndex: number; newIndex: number }) {
+  const moved = selectedDecks.value.splice(evt.oldIndex, 1)[0]
+  selectedDecks.value.splice(evt.newIndex, 0, moved)
+}
 </script>
 
 <template>
+  <div class="deck-comparison-container">
   <!-- Deck Picker -->
-  <v-combobox
-    v-model="selectedDecks"
-    :items="listOfStoredDecks"
-    item-title="deck_name"
-    item-value="deck_id"
-    return-object
-    multiple
-    label="Compare Decks"
-    chips
-    class="mb-4"
-  />
-
-  <!-- Type Filter Chips -->
-  <div class="type-filter">
-    <v-switch
-      v-for="type in typeHierarchy"
-      :key="type"
-      filter
-      :input-value="selectedTypes.includes(type)"
-      :label="type"
-      @click="toggleType(type)"
-      class="ma-1"
+    <v-combobox
+      v-model="selectedDecks"
+      :items="listOfStoredDecks"
+      item-title="deck_name"
+      item-value="deck_id"
+      return-object
+      multiple
+      label="Compare Decks"
+      chips
+      class="mb-4"
     />
-  </div>
 
-  <div class="comparison-container">
-    <!-- No-overlap banner -->
-    <div v-if="!filteredMatrix.length" class="no-overlap">
-      No cards match the selected types across all selected decks
+    <!-- Type Filter Chips -->
+    <div class="type-filter">
+      <v-switch
+        v-for="type in typeHierarchy"
+        :key="type"
+        filter
+        :input-value="selectedTypes.includes(type)"
+        :label="type"
+        @click="toggleType(type)"
+        class="ma-1"
+      />
     </div>
 
-    <!-- Grouped Table -->
-    <v-data-table
-      :headers="headers"
-      hide-default-footer
-      dense
-      class="elevation-1"
-    >
-      <template v-for="type in typeHierarchy" :key="type">
-        <template v-if="selectedTypes.includes(type)">
-          <!-- Type Banner -->
-          <tr class="type-banner">
-            <td :colspan="headers.length">{{ type }}</td>
-          </tr>
-          <!-- Rows for this type -->
-          <tr v-for="item in groupedItems[type]"
-            :key="item.name"
-            :class="{
-              common: item.counts.every(c => c > 0),
-              partial: item.counts.some(c => c > 0) && !item.counts.every(c => c > 0)
-            }"
-          >
-            <td><span>{{ item.name }} <Colors :mana_cost="getNumericalManaCost(item.mana_cost)" />
-                <span v-for="color in getColorManaCost(item.mana_cost)" :key="color"><Colors :color_name="mapColorCodeToName(color)" /></span>
-                </span>
-            </td>
-            <td v-for="(header, i) in headers.slice(1)" :key="i">
-              {{ item[`col${i}`] }}
-            </td>
-          </tr>
+    <!-- Draggable Deck Columns -->
+    <v-row no-gutters class="deck-columns">
+      <draggable
+        v-model="selectedDecks"
+        item-key="deck_id"
+        @end="onDeckReorder"
+        :animation="200"
+        tag="v-row"
+      >
+        <template #item="{ element, index }">
+          <v-col cols="auto">
+            <DeckColumn
+              :deck="element"
+              :index="index"
+              :sharedCardRows="sharedCardRows"
+            />
+          </v-col>
         </template>
-      </template>
-    </v-data-table>
+      </draggable>
+    </v-row>
   </div>
 </template>
 
@@ -208,5 +207,94 @@ watch(selectedDecks, (newDecks) => {
 
 .partial {
   color: #f57c00;
+}
+
+.card-name-cell {
+  max-width: 240px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-color-cell {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* .header-row th {
+  background: #f5f5f5;
+  font-weight: bold;
+  padding: 6px 8px;
+  text-align: center;
+}
+ */
+.deck-header-cell {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.card-name {
+  margin-right: 6px;
+}
+
+.card-name-text {
+  font-weight: 500;
+  padding-right: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mana-symbols {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: nowrap;
+}
+
+.header-row th,
+.comparison-table td {
+  padding: 6px 8px;
+  vertical-align: middle;
+}
+
+.color-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+}
+
+.card-name-wrapper {
+  display: flex;
+  max-width: 480px;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.card-name-left {
+  text-align: left;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-mana-right {
+  text-align: right;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.deck-comparison-container {
+  padding: 16px;
+  overflow-x: auto;
+}
+
+.deck-columns {
+  display: flex;
+  gap: 12px;
 }
 </style>

@@ -11,8 +11,9 @@ export interface Card {
 
 /** A deck selected for comparison */
 export interface Deck {
-  id: number
-  name: string
+  archetype: string
+  deck_id: number
+  deck_name: string
   cards: Card[]
   locked?: boolean
 }
