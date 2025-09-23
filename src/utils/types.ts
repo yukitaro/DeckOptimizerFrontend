@@ -10,6 +10,17 @@ export interface Card {
   image_url_to_use?: string
 }
 
+export interface MtgCard {
+  name: string
+  set_name: string
+  official_set_name: string
+  type: string
+  colors: string
+  mana_cost: string
+  image_url: string
+  card_text: string
+}
+
 /** A deck selected for comparison */
 export interface Deck {
   archetype: string

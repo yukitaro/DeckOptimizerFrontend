@@ -14,10 +14,14 @@ const {
   cardsInSelectedDeck,
   getCardsForDeckByIndex,
   listOfStoredDecks,
-  moveDeckImmutable,
+  //moveDeckImmutable,
   resetCardsForSelectedDecks,
-  selectedDecks
+  //selectedDecks
 } = useDeckData()
+
+const deckData = useDeckData()
+const selectedDecks = deckData.selectedDecks
+const moveDeckImmutable = deckData.moveDeckImmutable
 
 // 2️⃣ Define type groups and selection
 const typeHierarchy = [
@@ -43,7 +47,8 @@ const decks = computed<Deck[]>(() =>
     deck_id: d.deck_id,
     deck_name: d.deck_name,
     cards: cardsInSelectedDeck.value[i] || [],
-    locked: d.locked
+    locked: d.locked,
+    archetype: d.archetype ?? null
   }))
 )
 
@@ -190,31 +195,34 @@ function startResize(index: number, e: MouseEvent) {
     <div class="card-mana-right">Mana</div>
   </div>
 
-  <draggable
-    tag="div"
-    class="deck-columns"
-    :list="selectedDecks"
-    item-key="deck_id"
-    @end="onDeckReorder"
-    :animation="200"
-  >
-    <template #item="{ element, index }">
-      <div class="card-cell card-count deck-header-cell">
-        <span>{{ element.deck_name }}</span>
-        <v-icon
-          size="18"
-          class="ml-1 lock-icon"
-          :color="element.locked ? 'green' : 'grey'"
-          @click="toggleDeckLock(index)"
-        >
-          {{ element.locked ? 'mdi-lock' : 'mdi-lock-open' }}
-        </v-icon>
-      <div
-        class="resize-handle"
-        @mousedown="startResize(index, $event)" />
-      </div>
-    </template>
-  </draggable>
+<draggable
+  tag="div"
+  class="deck-columns"
+  v-model="selectedDecks"
+  item-key="deck_id"
+  @end="onDeckReorder"
+  :animation="200"
+>
+  <template #item="{ element, index }">
+    <div
+      class="card-cell deck-header-cell"
+      :style="{ width: deckWidths[index] + 'px' }">
+      <span>{{ element.deck_name }}</span>
+      <v-icon
+        size="18"
+        class="ml-1 lock-icon"
+        :color="element.locked ? 'green' : 'grey'"
+        @click.stop="toggleDeckLock(index)">
+        {{ element.locked ? 'mdi-lock' : 'mdi-lock-open' }}
+      </v-icon>
+
+      <!-- Resize handle: excluded from drag -->
+      <div class="resize-handle" @mousedown.stop.prevent="startResize(index, $event)"></div>
+    </div>
+  </template>
+</draggable>
+
+
 
       <div class="card-cell card-total">Total</div>
     </div>
@@ -235,9 +243,7 @@ function startResize(index: number, e: MouseEvent) {
           class="deck-columns"
           :list="selectedDecks"
           item-key="deck_id"
-          :animation="200"
-          :disabled="true"
-        >
+          :animation="200">
           <template #item="{ index }">
             <div class="card-cell card-count" :style="{ width: deckWidths[index] + 'px' }">
               {{ card[`col${index}`] ?? '-' }}
@@ -273,7 +279,7 @@ function startResize(index: number, e: MouseEvent) {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 600px;
+  min-width: fit-content;
   overflow-x: auto;
   background-color: #fdfdfd;
   border-radius: 6px;
@@ -300,6 +306,7 @@ function startResize(index: number, e: MouseEvent) {
   align-items: center;
   border-bottom: 1px solid #eee;
   padding: 4px 8px;
+  min-width: fit-content; // ✅ prevent flex shrink
 }
 
 /* Header row */
@@ -378,7 +385,10 @@ function startResize(index: number, e: MouseEvent) {
   flex-direction: row;
   gap: 8px;
   flex-wrap: nowrap;
+  overflow-x: auto;
+  min-width: fit-content; // ✅ allow horizontal growth
 }
+
 
 /* Color symbol alignment */
 .color-symbol {
@@ -403,6 +413,17 @@ function startResize(index: number, e: MouseEvent) {
   align-items: center;
   justify-content: space-between;
   overflow: hidden;
+  padding-right: 6px;
+}
+
+.deck-header-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  overflow: hidden;
+  padding-right: 6px;
+  cursor: grab; // ✅ entire cell is draggable
 }
 
 .resize-handle {
@@ -412,6 +433,8 @@ function startResize(index: number, e: MouseEvent) {
   width: 6px;
   height: 100%;
   cursor: col-resize;
+  background-color: rgba(0, 0, 0, 0.1);
+  border-left: 1px solid #ccc;
   z-index: 2;
 }
 </style>

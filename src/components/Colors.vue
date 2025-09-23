@@ -5,6 +5,7 @@ import IslandsIcon from '@/components/icons/IslandsIcon.vue'
 import MountainsIcon from '@/components/icons/MountainsIcon.vue'
 import PlainsIcon from '@/components/icons/PlainsIcon.vue'
 import SwampsIcon from '@/components/icons/SwampsIcon.vue'
+import ColorlessIcon from './icons/ColorlessIcon.vue'
 
 const props = defineProps({
   color_name: String,
@@ -22,7 +23,8 @@ const iconMap = {
   plains: PlainsIcon,
   swamps: SwampsIcon,
   mountains: MountainsIcon,
-  forests: ForestsIcon
+  forests: ForestsIcon,
+  colorless: ColorlessIcon
 }
 </script>
 
