@@ -8,6 +8,7 @@ import { buildComparisonMatrix } from '@/utils/deckComparisonUtils'
 import type { ComparisonItem, Deck } from '@/utils/types'
 import DeckColumn from './DeckColumn.vue'
 import { getColorManaCost, getNumericalManaCost, mapColorCodeToName} from '@/utils/deckUtils'
+import { useCsvExport, type CsvColumn } from '../composables/useCsvExport'
 
 // 1️⃣ Grab selected decks and their cards
 const {
@@ -236,7 +237,7 @@ function startResize(index: number, e: MouseEvent) {
         :key="card.name"
         class="comparison-row"
       >
-        <CardRow :card="card" />
+        <CardRow :card="card" :count="card.counts.reduce((sum: number, c: number) => sum + c, 0)" />
 
         <draggable
           tag="div"
