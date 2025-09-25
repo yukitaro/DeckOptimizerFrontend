@@ -19,6 +19,7 @@ export function useDeckData() {
 
       const cards: Card[] = response.data
       cardsInSelectedDeck.value.push(cards)
+      
       // Populate image URL dictionary
       for (const card of response.data) {
         if (card.name && card.image_url_to_use) {
@@ -67,7 +68,7 @@ export function useDeckData() {
   }
 
   function removeDeck(deckId: number) {
-    selectedDecks.value = selectedDecks.value.filter(d => d.deck_id !== deckId)
+    selectedDecks.value = selectedDecks.value.filter((d: Deck) => d.deck_id !== deckId)
   }
 
   function moveDeckImmutable(from: number, to: number) {

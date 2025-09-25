@@ -2,10 +2,13 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Colors from './Colors.vue';
+import SmartCardImage from './SmartCardImage.vue';
+
 import DeckComparison from './DeckComparison.vue';
 import axios from 'axios';
 import { useDeckData } from '@/composables/useDeckData'
 import GroupedCardList from './GroupedCardList.vue';
+import { brokenImageTracker } from '@/utils/brokenImageTracker';
 
 import {
   getNumericalManaCost,
@@ -22,6 +25,8 @@ const deckName = ref('')
 const deckDescription = ref('')
 const deckSomething = ref('')
 const externalLink = ref('')
+const archetype = ref('')
+const deckFormat = ref('')
 const errorMessages = ref([])
 const showErrorOverlay = ref(false)
 const showErrorSnackbar = ref(false)
@@ -54,8 +59,11 @@ const groupedCards = computed(() => {
     groups[type] = [];
   });
 
+  // Get the cards for the first deck (single deck display tabs use index 0)
+  const currentDeckCards = cardsInSelectedDeck.value[0] || [];
+  
   // Group cards by first matching type in hierarchy
-  cardsInSelectedDeck.value.forEach(card => {
+  currentDeckCards.forEach(card => {
     const typeString = card.type || '';
     
     // Force Land to take precedence if present
@@ -102,37 +110,69 @@ watch(selectedDeck, async (newDeck) => {
 })
 
 async function importCardsForDeck() {
-    axios.defaults.withCredentials = true;
-    axios.defaults.withXSRFToken = true;
-
-    await axios.get(`${base_url}/sanctum/csrf-cookie`, { withCredentials: true });
-
-    axios.post(`${base_url}/csrf-check`, {}, {withCredentials: true }).then(response => {
-        console.log('CSRF check passed:', response.data);
-    })
-    .catch(error => {
-    if (error.response && error.response.status === 419) {
-        console.error('CSRF token mismatch (419). Token or session may be missing.');
-    } else {
-        console.error('Unexpected error:', error);
-    }
-    });
-
     try {
-        const response = await axios.post(`${base_url}/deck`, {
+        console.log('Importing deck...', {
+            name: deckName.value,
+            description: deckDescription.value,
+            link: externalLink.value,
+            archetype: archetype.value,
+            dataLength: deckSomething.value.length
+        });
+
+        // Make the deck import request using API route (no CSRF needed)
+        const response = await axios.post(`${base_url}/api/deck`, {
             deckName: deckName.value,
             deckDescription: deckDescription.value,
             deckData: deckSomething.value,
-            deckLink: externalLink.value
+            deckLink: externalLink.value,
+            deckArchetype: archetype.value
+        }, { 
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
         });
+
+        console.log('Deck import response:', response.data);
 
         if (response.data.errors && response.data.errors.length > 0) {
             errorMessages.value = response.data.errors;
             showErrorSnackbar.value = true;
+        } else {
+            // Success! Clear the form and show success message
+            deckName.value = '';
+            deckDescription.value = '';
+            deckSomething.value = '';
+            externalLink.value = '';
+            archetype.value = '';
+            console.log('Deck imported successfully!');
+            
+            // Refresh the deck list
+            await getDecksFromDB();
         }
     } catch (error) {
-            errorMessages.value = [error.message];
-            showErrorSnackbar.value = true;
+        console.error('Import error:', error);
+        
+        if (error.response) {
+            console.error('Error response:', error.response.data);
+            console.error('Error status:', error.response.status);
+            
+            if (error.response.status === 419) {
+                errorMessages.value = ['CSRF token mismatch. Please refresh the page and try again.'];
+            } else if (error.response.data && error.response.data.message) {
+                errorMessages.value = [error.response.data.message];
+            } else if (error.response.data && error.response.data.errors) {
+                errorMessages.value = Array.isArray(error.response.data.errors) 
+                    ? error.response.data.errors 
+                    : [error.response.data.errors];
+            } else {
+                errorMessages.value = [`Server error (${error.response.status}): ${error.response.statusText}`];
+            }
+        } else {
+            errorMessages.value = [error.message || 'Network error occurred'];
+        }
+        
+        showErrorSnackbar.value = true;
     }
 }
 
@@ -156,6 +196,23 @@ async function getDecksFromDB() {
     } catch (error) {
         console.log("oops an error!" + error);
     }    
+}
+
+async function sendBrokenUrlsToBackend() {
+    try {
+        const result = await brokenImageTracker.sendBrokenUrlsToBackend();
+        if (result) {
+            console.log('Broken URLs sent successfully:', result);
+            // Optionally clear the local tracking after successful send
+            brokenImageTracker.clearBrokenUrls();
+        }
+    } catch (error) {
+        console.error('Failed to send broken URLs:', error);
+    }
+}
+
+function debugBrokenUrls() {
+    brokenImageTracker.debugBrokenUrls();
 }
 
 // 1️⃣ Computed “active” card: hoveredCard or firstInDeck
@@ -183,6 +240,16 @@ onMounted(() => {
       <v-app-bar-nav-icon></v-app-bar-nav-icon>
       <v-toolbar-title>Deck Management</v-toolbar-title>
       <v-btn icon="mdi-magnify"></v-btn>
+      <v-btn 
+        @click="debugBrokenUrls"
+        icon="mdi-bug" 
+        title="Debug: Show broken URLs in console"
+      ></v-btn>
+      <v-btn 
+        @click="sendBrokenUrlsToBackend"
+        icon="mdi-image-broken" 
+        title="Report broken image URLs to backend for batch fixing"
+      ></v-btn>
       <v-btn icon="mdi-dots-vertical"></v-btn>
 
       <template v-slot:extension>
@@ -204,55 +271,120 @@ onMounted(() => {
         >
         Errors occurred during import. <span class="view-details">View details</span>
         </div>        
-        <v-card class="custom-card-background" v-if="tab==='Deck Import'">
-          <v-card-text>
-                <v-form v-model="valid">
-                    <v-row gutters>
-                        <v-col cols="7">
-                            <v-row class="d-flex center">
-                                <v-col cols="2" class="d-flex">
-                                    <v-btn @click="importCardsForDeck" type="button" class="import-button" block>Import</v-btn>
-                                </v-col>
-                                <v-col cols="4">
-                                <v-text-field class="cool-mist-text-field"
-                                    v-model="deckName"
-                                    label="Deck name"
-                                    variant="outlined"
-                                    required
-                                ></v-text-field>
-                                </v-col>
-                                <v-col cols="6">
-                                <v-text-field class="cool-mist-text-field"
-                                    v-model="deckDescription"
-                                    label="Deck description"
-                                    required
-                                    color="secondary-darken-2"
-                                ></v-text-field>
-                                </v-col>
-                            </v-row>
-                            <v-row>
-                                <v-col cols="12">
-                                <v-text-field class="cool-mist-text-field"
-                                    v-model="externalLink"
-                                    label="Link to deck"
-                                    required
-                                    color="primary"                                    
-                                ></v-text-field>
-                                </v-col>
-                            </v-row>
-                        </v-col>
-                        <v-col cols="5">
-                            <v-textarea class="cool-mist-text-field"
-                                v-model="deckSomething"
-                                label="Deck something"
-                                rows="40"
-                                row-height="25"
-                                color=""
-                                @keydown.enter.exact.prevent="importCardsForDeck"
-                            ></v-textarea>
-                        </v-col>
-                    </v-row>                    
-                </v-form>
+        <v-card class="deck-import-card" v-if="tab==='Deck Import'">
+          <v-card-text class="pa-6">
+            <div class="deck-import-header mb-6">
+              <h2 class="text-h4 font-weight-bold text-primary mb-2">Import New Deck</h2>
+              <p class="text-subtitle-1 text-medium-emphasis">
+                Create a new deck by filling in the details and pasting your decklist
+              </p>
+            </div>
+
+            <v-form v-model="valid">
+              <v-row class="deck-import-layout" no-gutters>
+                <!-- Left Panel: Deck Information -->
+                <v-col cols="12" lg="5" class="deck-info-panel">
+                  <div class="info-panel-content">
+                    <h3 class="text-h6 font-weight-medium mb-4 text-primary">Deck Information</h3>
+                    
+                    <v-text-field v-model="deckName" label="Deck Name" variant="outlined" density="comfortable" class="deck-input mb-4"
+                      prepend-inner-icon="mdi-cards-variant" required :rules="[v => !!v || 'Deck name is required']" />
+
+                    <v-text-field
+                      v-model="deckDescription"
+                      label="Deck Description"
+                      variant="outlined"
+                      density="comfortable"
+                      class="deck-input mb-4"
+                      prepend-inner-icon="mdi-text"
+                      required
+                      :rules="[v => !!v || 'Description is required']"
+                    />
+
+                    <v-text-field
+                      v-model="externalLink"
+                      label="Deck Link (Optional)"
+                      variant="outlined"
+                      density="comfortable"
+                      class="deck-input mb-6"
+                      prepend-inner-icon="mdi-link"
+                      hint="Link to deck on external site (MTGGoldfish, Archidekt, etc.)"
+                      persistent-hint
+                    />
+
+                    <v-row>
+                      <v-col cols="6">
+                        <v-text-field
+                          v-model="archetype"
+                          label="Archetype (Optional)"
+                          variant="outlined"
+                          density="comfortable"
+                          class="deck-input mb-6"
+                          hint="Mono Blue Terror, Rakdos Madness, Tron, etc."
+                          persistent-hint
+                        />
+                      </v-col>
+                      <v-col cols="6">
+                        <v-text-field
+                          v-model="deckFormat"
+                          label="Format (Default: Pauper)"
+                          variant="outlined"
+                          density="comfortable"
+                          class="deck-input mb-6"
+                          hint="Pauper, Standard, Commander, etc."
+                          persistent-hint
+                        />
+                      </v-col>
+                    </v-row>
+
+                    <v-btn
+                      @click="importCardsForDeck"
+                      type="button"
+                      class="import-action-btn"
+                      color="primary"
+                      size="large"
+                      variant="elevated"
+                      block
+                      :disabled="!deckName || !deckDescription || !deckSomething"
+                      prepend-icon="mdi-upload"
+                    >
+                      Import Deck
+                    </v-btn>
+                  </div>
+                </v-col>
+
+                <!-- Right Panel: Decklist Input -->
+                <v-col cols="12" lg="7" class="decklist-panel">
+                  <div class="decklist-content">
+                    <div class="d-flex align-center justify-space-between mb-4">
+                      <h3 class="text-h6 font-weight-medium text-primary">Decklist</h3>
+                      <v-chip color="info" variant="outlined" size="small">
+                        <v-icon start icon="mdi-information"></v-icon>
+                        Ctrl+Enter to Import
+                      </v-chip>
+                    </div>
+                    
+                    <v-textarea
+                      v-model="deckSomething"
+                      label="Paste your decklist here"
+                      variant="outlined"
+                      class="decklist-input"
+                      rows="24"
+                      no-resize
+                      hint="Format: 4x Lightning Bolt or 4 Lightning Bolt (one card per line)"
+                      persistent-hint
+                      @keydown.ctrl.enter.exact.prevent="importCardsForDeck"
+                    >
+                      <template #prepend-inner>
+                        <div class="decklist-helper">
+                          <v-icon color="primary">mdi-format-list-numbered</v-icon>
+                        </div>
+                      </template>
+                    </v-textarea>
+                  </div>
+                </v-col>
+              </v-row>
+            </v-form>
           </v-card-text>
         </v-card>
         <v-card v-if="tab === 'Card List Test'" class="pa-4 custom-card-background">
@@ -393,21 +525,15 @@ onMounted(() => {
   <div class="deck-display-flex">
     <!-- 👁️ Preview Pane -->
     <div class="preview-pane">
-      <v-img
+      <SmartCardImage
         v-if="activeCard.image_url_to_use"
         :src="activeCard.image_url_to_use"
+        :card-name="activeCard.name || 'Unknown Card'"
         alt="Card preview"
         width="300"
         aspect-ratio="0.714"
         class="mb-2"
-      >
-        <template #placeholder>
-          <div class="image-fallback">Loading…</div>
-        </template>
-        <template #error>
-          <div class="image-fallback">No preview available</div>
-        </template>
-      </v-img>
+      />
       <div v-else class="image-fallback mb-2">No preview available</div>
       <p class="preview-name">{{ activeCard.name || 'Hover a card…' }}</p>
     </div>
@@ -423,6 +549,14 @@ onMounted(() => {
               :key="card.id"
               class="card-line"
             >
+              <!-- Hidden SmartCardImage for URL testing -->
+              <SmartCardImage
+                v-if="card.image_url_to_use"
+                :src="card.image_url_to_use"
+                :card-name="card.name"
+                style="display: none;"
+              />
+              
               <p>
                 <strong>{{ card.card_count }}x</strong>
                 <span class="card-name" @mouseover="hoveredCard = card">
@@ -601,6 +735,134 @@ onMounted(() => {
   overflow-y: auto;
   padding-right: 12px;
   height: 100%;  
+}
+
+/* Deck Import Styles */
+.deck-import-card {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.deck-import-header {
+  text-align: center;
+  padding: 16px 0;
+  background: linear-gradient(90deg, rgba(33, 150, 243, 0.1), rgba(76, 175, 80, 0.1));
+  border-radius: 12px;
+  margin: -8px -8px 24px -8px;
+}
+
+.deck-import-layout {
+  gap: 24px;
+}
+
+.deck-info-panel {
+  padding: 0 12px 0 0;
+}
+
+.info-panel-content {
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 12px;
+  padding: 24px;
+  height: 100%;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.decklist-panel {
+  padding: 0 0 0 12px;
+}
+
+.decklist-content {
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 12px;
+  padding: 24px;
+  height: 100%;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.deck-input {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+}
+
+.deck-input ::v-deep(.v-field) {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.deck-input ::v-deep(.v-field:hover) {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.deck-input ::v-deep(.v-field--focused) {
+  box-shadow: 0 4px 16px rgba(33, 150, 243, 0.2);
+}
+
+.decklist-input {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+}
+
+.decklist-input ::v-deep(.v-field) {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.decklist-input ::v-deep(.v-field__input) {
+  min-height: 400px !important;
+}
+
+.decklist-helper {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  opacity: 0.6;
+}
+
+.import-action-btn {
+  border-radius: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 16px rgba(33, 150, 243, 0.3);
+  transition: all 0.3s ease;
+}
+
+.import-action-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(33, 150, 243, 0.4);
+}
+
+.import-action-btn:disabled {
+  opacity: 0.6;
+  transform: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 1280px) {
+  .deck-import-layout {
+    flex-direction: column;
+  }
+  
+  .deck-info-panel,
+  .decklist-panel {
+    padding: 0;
+    margin-bottom: 16px;
+  }
+  
+  .decklist-input ::v-deep(.v-field__input) {
+    min-height: 300px !important;
+  }
 }
 
 .deck-browser {

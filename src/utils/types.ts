@@ -8,6 +8,7 @@ export interface Card {
   card_count: number
   mana_cost?: string
   image_url_to_use?: string
+  official_set_name?: string
 }
 
 export interface MtgCard {
@@ -35,13 +36,6 @@ export interface MatrixRow {
   id: number
   name: string
   type: string
-  counts: number[]
+  deckCounts: Record<string, number>
   mana_cost?: string
-}
-
-export interface ComparisonItem {
-  name: string;
-  counts: number[]
-  mana_cost?: string
-  [key: string]: string | number | number[] | undefined
 }

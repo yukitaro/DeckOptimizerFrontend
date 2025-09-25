@@ -16,17 +16,17 @@ export function buildComparisonMatrix(decks: Deck[]): MatrixRow[] {
           name: card.name,
           type: card.type,
           mana_cost: card.mana_cost,
-          counts: Array(decks.length).fill(0),
+          deckCounts: {},
         })
       }
-      map.get(card.id)!.counts[colIdx] = card.card_count
+      map.get(card.id)!.deckCounts[`deck_${deck.deck_id}`] = card.card_count
     })
   })
 
   const matrix = Array.from(map.values())
   matrix.sort((a, b) => {
-    const aAll = a.counts.every(c => c > 0)
-    const bAll = b.counts.every(c => c > 0)
+    const aAll = Object.values(a.deckCounts).every(c => c > 0)
+    const bAll = Object.values(b.deckCounts).every(c => c > 0)
     if (aAll !== bAll) return aAll ? -1 : 1
     return a.name.localeCompare(b.name)
   })

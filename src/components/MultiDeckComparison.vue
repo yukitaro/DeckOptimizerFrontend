@@ -2,12 +2,8 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import draggable from 'vuedraggable'
 import { useDeckData } from '@/composables/useDeckData'
-import { buildComparisonMatrix } from '@/utils/deckComparisonUtils'
-//import CardRow from './CardRow.vue'
-//import Colors from './Colors.vue'
-import type { ComparisonItem, Deck } from '@/utils/types'
-import DeckColumn from './DeckColumn.vue'
-import { getColorManaCost, getNumericalManaCost, mapColorCodeToName} from '@/utils/deckUtils'
+import { buildComparisonMatrix, buildShoppingList } from '@/utils/deckComparisonUtils'
+import type { Deck, MatrixRow } from '@/utils/types'
 import { useCsvExport, type CsvColumn } from '../composables/useCsvExport'
 
 // 1️⃣ Grab selected decks and their cards
@@ -65,14 +61,14 @@ const filteredMatrix = computed(() =>
 
 // 6️⃣ Group rows by type
 const groupedItems = computed(() => {
-  const groups: Record<string, ComparisonItem[]> = {}
+  const groups: Record<string, MatrixRow[]> = {}
   // Initialize empty arrays for each type
   typeHierarchy.forEach(type => {
     groups[type] = []
   })
 
   // Group matrix rows by first matching type in hierarchy
-  filteredMatrix.value.forEach(row => {
+  filteredMatrix.value.forEach((row: MatrixRow) => {
     const typeString = row.type || ''
 
     let matchedType: string | undefined = undefined
@@ -83,11 +79,7 @@ const groupedItems = computed(() => {
     }
 
     if (matchedType) {
-      const item: ComparisonItem = { name: row.name, counts: [...row.counts], mana_cost: row.mana_cost ?? '', }
-      row.counts.forEach((count, idx) => {
-        item[`col${idx}`] = count > 0 ? count : 0
-      })
-      groups[matchedType].push(item)
+      groups[matchedType].push(row)
     }
   })
   return groups
@@ -113,22 +105,24 @@ async function handleSelectionChange(newSelection: Deck[]) {
 }
 
 // DRAG: reorder decks + their card groups
-function onDeckReorder(evt: { oldIndex: number; newIndex: number }) {
+async function onDeckReorder(evt: { oldIndex: number; newIndex: number }) {
   moveDeckImmutable(evt.oldIndex, evt.newIndex)
-
+  
+  await nextTick()
   const movedWidth = deckWidths.value.splice(evt.oldIndex, 1)[0]
   deckWidths.value.splice(evt.newIndex, 0, movedWidth)
 }
 
 const lockedDeckIndexes = computed(() =>
   selectedDecks.value
-    .map((deck, i) => deck.locked ? i : null)
+    .map((deck: Deck, i: number) => deck.locked ? i : null)
     .filter(i => i !== null)
 )
 
-function getLockedTotal(card: ComparisonItem): number {
-  return lockedDeckIndexes.value.reduce((sum, i) => {
-    const count = card[`col${i}`]
+function getLockedTotal(card: MatrixRow): number {
+  return lockedDeckIndexes.value.reduce((sum: number, i: number) => {
+    const deck = decks.value[i]
+    const count = card.deckCounts[`deck_${deck.deck_id}`]
     return typeof count === 'number' ? sum + count : sum
   }, 0)
 }
@@ -158,6 +152,31 @@ function startResize(index: number, e: MouseEvent) {
 
   window.addEventListener('mousemove', onMouseMove)
   window.addEventListener('mouseup', onMouseUp)
+}
+
+// CSV Export composable
+const { downloadCsv } = useCsvExport<any>()
+
+function exportToCSV() {
+
+  if (lockedDeckIndexes.value.length === 0) {
+    return alert('No data to export')
+  }
+
+  const lockedDecks = lockedDeckIndexes.value.map(i => decks.value[i])
+  const shoppingListForExport = buildShoppingList(lockedDecks)
+
+  // Define columns for CSV export
+  const columns: CsvColumn<any>[] = [
+    { key: 'name', label: 'Name' },
+    { key: 'official_set_name', label: 'Set' },
+    { key: 'rarity', label: 'Rarity' },
+    { key: 'mana_cost', label: 'Mana Cost' },
+    { key: 'type_line', label: 'Type' },
+    { key: 'oracle_text', label: 'Text' }
+  ]
+  
+  downloadCsv(matrix.value, columns, 'mtg_cards_export.csv')
 }
 </script>
 
@@ -199,7 +218,7 @@ function startResize(index: number, e: MouseEvent) {
 <draggable
   tag="div"
   class="deck-columns"
-  v-model="selectedDecks"
+  :modelValue="selectedDecks"
   item-key="deck_id"
   @end="onDeckReorder"
   :animation="200"
@@ -237,20 +256,17 @@ function startResize(index: number, e: MouseEvent) {
         :key="card.name"
         class="comparison-row"
       >
-        <CardRow :card="card" :count="card.counts.reduce((sum: number, c: number) => sum + c, 0)" />
+        <CardRow :card="card" :count="Object.values(card.deckCounts).reduce((sum: number, c: number) => sum + c, 0)" />
 
-        <draggable
-          tag="div"
-          class="deck-columns"
-          :list="selectedDecks"
-          item-key="deck_id"
-          :animation="200">
-          <template #item="{ index }">
-            <div class="card-cell card-count" :style="{ width: deckWidths[index] + 'px' }">
-              {{ card[`col${index}`] ?? '-' }}
-            </div>
-          </template>
-        </draggable>
+        <div class="deck-columns">
+          <div
+            v-for="(deck, index) in selectedDecks"
+            :key="deck.deck_id"
+            class="card-cell card-count" 
+            :style="{ width: deckWidths[index] + 'px' }">
+            {{ card.deckCounts[`deck_${deck.deck_id}`] ?? '-' }}
+          </div>
+        </div>
 
         <div class="card-cell card-total">
           {{ getLockedTotal(card) }}
