@@ -32,26 +32,17 @@ const hasBeenTested = ref(false)
 
 // Test the URL immediately when component mounts
 onMounted(() => {
-  console.log(`🏗️ SmartCardImage mounted for ${props.cardName} with URL: ${props.src}`)
-  
   if (props.src && props.src.includes('gatherer.wizards.com')) {
-    console.log(`🎯 Auto-testing URL for ${props.cardName}`)
-    testUrlForRedirect(props.src, props.cardName)
-  } else {
-    console.log(`⏭️ Skipping test for ${props.cardName} - not a gatherer URL`)
+    testUrlForRedirect(props.src, props.cardName);
   }
-})
+});
 
 function handleMouseOver() {
-  // Just a placeholder - the real testing happens on mount now
-  console.log(`🐭 Mouse over detected for ${props.cardName}`)
+  // Placeholder for future hover logic
 }
 
 async function testUrlForRedirect(url: string, cardName: string) {
   try {
-    console.log(`🔍 Testing URL for redirect via backend: ${cardName} - ${url}`)
-    
-    // Call backend to test the URL for redirects
     const response = await fetch('http://localhost:80/api/test-image-url', {
       method: 'POST',
       headers: {
@@ -62,29 +53,17 @@ async function testUrlForRedirect(url: string, cardName: string) {
         url: url,
         card_name: cardName
       })
-    })
-    
-    console.log(`📡 Response status for ${cardName}: ${response.status}`)
-    
+    });
+
     if (response.ok) {
-      const result = await response.json()
-      
-      console.log(`✅ Backend test result for ${cardName}:`, result)
-      
+      const result = await response.json();
+
       if (result.is_broken) {
-        console.log(`🚫 **BROKEN URL DETECTED:** ${cardName} - ${url}`)
-        console.log(`🔧 About to register broken URL for ${cardName}`)
-        brokenImageTracker.registerBrokenUrl(url, cardName)
-        console.log(`✅ Registration completed for ${cardName}`)
-      } else {
-        console.log(`✅ URL is good for ${cardName}`)
+        brokenImageTracker.registerBrokenUrl(url, cardName);
       }
-    } else {
-      console.warn(`❌ Backend test failed for ${cardName}: ${response.status} ${response.statusText}`)
     }
-    
   } catch (error) {
-    console.error(`💥 Error testing URL for ${cardName}:`, error)
+    // Silent fail — optionally handle error UI here
   }
 }
 

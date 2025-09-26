@@ -20,6 +20,11 @@ import router from './router'
 // Styles
 import 'unfonts.css'
 
+
+import { brokenImageTracker } from '@/utils/brokenImageTracker';
+
+window.brokenImageTracker = brokenImageTracker;
+
 const app = createApp(App)
 
 registerPlugins(app)

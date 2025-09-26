@@ -55,8 +55,36 @@ export function useDeckData() {
     // bonus points if we only retrieve the new one(s)
   }
 
+  async function getDecksFromDB() {
+      try {
+          const response = await axios.get(`${base_url}/api/decks`, {
+              params: {
+                  limit: 10
+              }
+          });
+
+          if (response.data.errors && response.data.errors.length > 0) {
+          } else {
+            setDecks(response.data.map(deckData => ({
+                  deck_id: deckData.id,
+                  deck_name: deckData.deck_name,
+                  description: deckData.description,
+                  archetype: deckData.archetype ?? 'Unknown'
+              })))
+            console.log("Complete return value: " + JSON.stringify(listOfStoredDecks.value));
+          }
+      } catch (error) {
+          console.log("oops an error!" + error);
+      }    
+  }
+
+
   function setDecks(decks: any[]) {
     listOfStoredDecks.value = decks
+  }
+
+  async function deleteDeck(deckId: number) {
+    await axios.delete(`${base_url}/api/decks/${deckId}`);
   }
 
   function resetCardsForSelectedDecks(newDecks: Deck[]) {
@@ -88,9 +116,11 @@ export function useDeckData() {
   return {
     addDeckForComparison,
     cardsInSelectedDeck,
+    deleteDeck,
     dictOfCardImageUrls,
     getCardsForDeck,
     getCardsForDeckByIndex,
+    getDecksFromDB,
     listOfStoredDecks,
     moveDeckImmutable,
     removeDeck,

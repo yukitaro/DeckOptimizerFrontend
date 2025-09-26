@@ -46,6 +46,12 @@ class BrokenImageTracker {
     return stored
   }
 
+  removeUrlFromBrokenUrls(index: number) {
+    const stored = this.getBrokenUrls()
+    stored.splice(index, 1)
+    localStorage.setItem('brokenImageUrls', JSON.stringify(stored))
+  }
+
   // Send broken URLs to backend for batch processing
   async sendBrokenUrlsToBackend() {
     const brokenUrls = this.getBrokenUrls()

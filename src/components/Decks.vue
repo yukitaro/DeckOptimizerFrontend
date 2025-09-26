@@ -32,8 +32,10 @@ const showErrorOverlay = ref(false)
 const showErrorSnackbar = ref(false)
 const selectedDeck = ref()
 const hoveredCard = ref(null)
+const deckToDelete = ref(null)
+const showConfirmDialog = ref(false)
 
-const { cardsInSelectedDeck, getCardsForDeck, listOfStoredDecks, setDecks } = useDeckData()
+const { cardsInSelectedDeck, deleteDeck, getCardsForDeck, getDecksFromDB, listOfStoredDecks, setDecks } = useDeckData()
 
 // Mk. ][
 const deckSearch = ref('')
@@ -48,7 +50,7 @@ const filteredDecks = computed(() => {
   })
 })
 
-const tabLabels = ['Deck Import', 'Card List Test', 'Multi Deck Compare', 'Deck Display', 'Deck Display 2', 'Deck Comparison', 'Deck Swapping'];
+const tabLabels = ['Deck Import', 'Card List Test', 'Multi Deck Compare', 'Deck Display', 'Deck Display 2', 'Deck Management','Deck Comparison', 'Deck Swapping'];
 const typeHierarchy = ['Creature', 'Artifact', 'Instant', 'Sorcery', 'Enchantment', 'Land'];
 
 const groupedCards = computed(() => {
@@ -109,6 +111,13 @@ watch(selectedDeck, async (newDeck) => {
   }
 })
 
+watch(tab, async (newTab) => {
+  if (newTab === 'Deck Management') {
+    await getDecksFromDB();
+  }
+});
+
+
 async function importCardsForDeck() {
     try {
         console.log('Importing deck...', {
@@ -148,7 +157,7 @@ async function importCardsForDeck() {
             console.log('Deck imported successfully!');
             
             // Refresh the deck list
-            await getDecksFromDB();
+            //await getDecksFromDB();
         }
     } catch (error) {
         console.error('Import error:', error);
@@ -176,28 +185,6 @@ async function importCardsForDeck() {
     }
 }
 
-async function getDecksFromDB() {
-    try {
-        const response = await axios.get(`${base_url}/api/decks`, {
-            params: {
-                limit: 10
-            }
-        });
-
-        if (response.data.errors && response.data.errors.length > 0) {
-        } else {
-          setDecks(response.data.map(deckData => ({
-                deck_id: deckData.id,
-                deck_name: deckData.deck_name,
-                description: deckData.description,
-            })))
-          console.log("Complete return value: " + JSON.stringify(listOfStoredDecks.value));
-        }
-    } catch (error) {
-        console.log("oops an error!" + error);
-    }    
-}
-
 async function sendBrokenUrlsToBackend() {
     try {
         const result = await brokenImageTracker.sendBrokenUrlsToBackend();
@@ -215,6 +202,28 @@ function debugBrokenUrls() {
     brokenImageTracker.debugBrokenUrls();
 }
 
+async function deleteADeck() {
+  try {
+    await deleteDeck(deckToDelete.value.deck_id);
+
+    listOfStoredDecks.value = listOfStoredDecks.value.filter(deck => deck.deck_id !== deckToDelete.value.deck_id);
+    toastMessage.value = 'Deck deleted successfully';
+  } catch(err) {
+    toastMessage.value = 'Error deleting deck!'
+  } finally {
+  showConfirmDialog.value = false;
+  showToast.value = true;
+  }
+}
+
+function confirmDelete(deck) {
+  deckToDelete.value = deck;
+  showConfirmDialog.value = true;
+}
+
+const showToast = ref(false);
+const toastMessage = ref('');
+
 // 1️⃣ Computed “active” card: hoveredCard or firstInDeck
 const activeCard = computed(() => {
   return (
@@ -229,8 +238,8 @@ watch(cardsInSelectedDeck, (newVal) => {
   hoveredCard.value = null
 })
 
-onMounted(() => {
-    getDecksFromDB()
+onMounted(async () => {
+    await getDecksFromDB()
 })
 </script>
 
@@ -290,64 +299,25 @@ onMounted(() => {
                     <v-text-field v-model="deckName" label="Deck Name" variant="outlined" density="comfortable" class="deck-input mb-4"
                       prepend-inner-icon="mdi-cards-variant" required :rules="[v => !!v || 'Deck name is required']" />
 
-                    <v-text-field
-                      v-model="deckDescription"
-                      label="Deck Description"
-                      variant="outlined"
-                      density="comfortable"
-                      class="deck-input mb-4"
-                      prepend-inner-icon="mdi-text"
-                      required
-                      :rules="[v => !!v || 'Description is required']"
-                    />
+                    <v-text-field v-model="deckDescription" label="Deck Description" variant="outlined" density="comfortable"
+                      class="deck-input mb-4" prepend-inner-icon="mdi-text" required :rules="[v => !!v || 'Description is required']" />
 
-                    <v-text-field
-                      v-model="externalLink"
-                      label="Deck Link (Optional)"
-                      variant="outlined"
-                      density="comfortable"
-                      class="deck-input mb-6"
-                      prepend-inner-icon="mdi-link"
-                      hint="Link to deck on external site (MTGGoldfish, Archidekt, etc.)"
-                      persistent-hint
-                    />
+                    <v-text-field v-model="externalLink" label="Deck Link (Optional)" variant="outlined" density="comfortable"
+                      class="deck-input mb-6" prepend-inner-icon="mdi-link" hint="Link to deck on external site (MTGGoldfish, Archidekt, etc.)" persistent-hint />
 
                     <v-row>
                       <v-col cols="6">
-                        <v-text-field
-                          v-model="archetype"
-                          label="Archetype (Optional)"
-                          variant="outlined"
-                          density="comfortable"
-                          class="deck-input mb-6"
-                          hint="Mono Blue Terror, Rakdos Madness, Tron, etc."
-                          persistent-hint
-                        />
+                        <v-text-field v-model="archetype" label="Archetype (Optional)" variant="outlined" density="comfortable"
+                          class="deck-input mb-6" hint="Mono Blue Terror, Rakdos Madness, Tron, etc." persistent-hint />
                       </v-col>
                       <v-col cols="6">
-                        <v-text-field
-                          v-model="deckFormat"
-                          label="Format (Default: Pauper)"
-                          variant="outlined"
-                          density="comfortable"
-                          class="deck-input mb-6"
-                          hint="Pauper, Standard, Commander, etc."
-                          persistent-hint
-                        />
+                        <v-text-field v-model="deckFormat" label="Format (Default: Pauper)" variant="outlined" density="comfortable"
+                          class="deck-input mb-6" hint="Pauper, Standard, Commander, etc." persistent-hint />
                       </v-col>
                     </v-row>
 
-                    <v-btn
-                      @click="importCardsForDeck"
-                      type="button"
-                      class="import-action-btn"
-                      color="primary"
-                      size="large"
-                      variant="elevated"
-                      block
-                      :disabled="!deckName || !deckDescription || !deckSomething"
-                      prepend-icon="mdi-upload"
-                    >
+                    <v-btn @click="importCardsForDeck" type="button" class="import-action-btn" color="primary" size="large"
+                      variant="elevated" block :disabled="!deckName || !deckDescription || !deckSomething" prepend-icon="mdi-upload">
                       Import Deck
                     </v-btn>
                   </div>
@@ -364,17 +334,9 @@ onMounted(() => {
                       </v-chip>
                     </div>
                     
-                    <v-textarea
-                      v-model="deckSomething"
-                      label="Paste your decklist here"
-                      variant="outlined"
-                      class="decklist-input"
-                      rows="24"
-                      no-resize
-                      hint="Format: 4x Lightning Bolt or 4 Lightning Bolt (one card per line)"
-                      persistent-hint
-                      @keydown.ctrl.enter.exact.prevent="importCardsForDeck"
-                    >
+                    <v-textarea v-model="deckSomething" label="Paste your decklist here" variant="outlined" class="decklist-input"
+                      rows="24" no-resize hint="Format: 4x Lightning Bolt or 4 Lightning Bolt (one card per line)" persistent-hint
+                      @keydown.ctrl.enter.exact.prevent="importCardsForDeck">
                       <template #prepend-inner>
                         <div class="decklist-helper">
                           <v-icon color="primary">mdi-format-list-numbered</v-icon>
@@ -492,22 +454,8 @@ onMounted(() => {
         </v-card>
         <v-card v-if="tab === 'Deck Display 2'" class="pa-4 custom-card-background">
 <!-- 🔍 Deck Selector -->
-          <v-text-field
-            v-model="deckSearch"
-            label="Search decks"
-            placeholder="Goblin, Rakdos, Mono Blue Terror…"
-            clearable
-            class="mb-4"
-          />
-          <v-autocomplete
-            v-model="selectedDeck"
-            :items="filteredDecks"
-            item-title="deck_name"
-            item-value="deck_id"
-            return-object
-            label="Select a Deck"
-            class="mb-4"
-          >
+          <v-text-field v-model="deckSearch" label="Search decks" placeholder="Goblin, Rakdos, Mono Blue Terror…" clearable class="mb-4" />
+          <v-autocomplete v-model="selectedDeck" :items="filteredDecks" item-title="deck_name" item-value="deck_id" return-object label="Select a Deck" class="mb-4">
             <template #item="{ item, props }">
               <v-list-item v-bind="props" :key="item.deck_id">
                 <v-list-item-title>{{ item.deck_name }}</v-list-item-title>
@@ -521,22 +469,22 @@ onMounted(() => {
             </template>
           </v-autocomplete>
 
-  <!-- 🧠 Deck Display -->
-  <div class="deck-display-flex">
-    <!-- 👁️ Preview Pane -->
-    <div class="preview-pane">
-      <SmartCardImage
-        v-if="activeCard.image_url_to_use"
-        :src="activeCard.image_url_to_use"
-        :card-name="activeCard.name || 'Unknown Card'"
-        alt="Card preview"
-        width="300"
-        aspect-ratio="0.714"
-        class="mb-2"
-      />
-      <div v-else class="image-fallback mb-2">No preview available</div>
-      <p class="preview-name">{{ activeCard.name || 'Hover a card…' }}</p>
-    </div>
+          <!-- 🧠 Deck Display -->
+          <div class="deck-display-flex">
+            <!-- 👁️ Preview Pane -->
+            <div class="preview-pane">
+              <SmartCardImage
+                v-if="activeCard.image_url_to_use"
+                :src="activeCard.image_url_to_use"
+                :card-name="activeCard.name || 'Unknown Card'"
+                alt="Card preview"
+                width="300"
+                aspect-ratio="0.714"
+                class="mb-2"
+              />
+              <div v-else class="image-fallback mb-2">No preview available</div>
+              <p class="preview-name">{{ activeCard.name || 'Hover a card…' }}</p>
+            </div>
 
     <!-- 📜 Deck List -->
     <div class="card-list-container">
@@ -584,6 +532,33 @@ onMounted(() => {
     </div>
   </div>
 </v-card>
+<v-card v-if="tab === 'Deck Management'" class="pa-4 custom-card-background">
+  <v-snackbar v-model="showToast" :timeout="3000">
+    {{ toastMessage }}
+  </v-snackbar>
+  <v-list>
+    <v-list-item v-for="(deck, index) in listOfStoredDecks" :key="deck.deck_id">
+        <v-list-item-title>{{ deck.deck_name }}</v-list-item-title>
+        <v-list-item-subtitle v-if="deck.description">{{ deck.description }}</v-list-item-subtitle>
+        {{ deck.archetype }}
+        <v-icon class="ml-auto" @click="confirmDelete(deck)" title="Delete Deck">mdi-delete</v-icon>
+      <v-divider v-if="index < listOfStoredDecks.length - 1" class="my-2"></v-divider>
+    </v-list-item>
+  </v-list>
+</v-card>
+<v-dialog v-model="showConfirmDialog" max-width="400">
+  <v-card>
+    <v-card-title class="text-h6">Confirm Deletion</v-card-title>
+    <v-card-text>
+      Are you sure you want to delete <strong>{{ deckToDelete?.deck_name }}</strong>?
+    </v-card-text>
+    <v-card-actions>
+      <v-spacer />
+      <v-btn text @click="showConfirmDialog = false">Cancel</v-btn>
+      <v-btn color="red" @click="deleteADeck">Delete</v-btn>
+    </v-card-actions>
+  </v-card>
+</v-dialog>
 <v-card v-if="tab === 'Deck Comparison'" class="pa-4 custom-card-background">
   <DeckComparison :listOfStoredDecks = listOfStoredDecks />
 </v-card>
@@ -603,14 +578,12 @@ onMounted(() => {
             <v-list-item
             v-for="(error, index) in errorMessages"
             :key="index">
-            <v-list-item-content>
                 <v-list-item-title class="text-wrap">
                 {{ typeof error === 'string' ? error : error.error }}
                 </v-list-item-title>
                 <v-list-item-subtitle v-if="error.line">
                 Line {{ error.line }}: {{ error.input }}
                 </v-list-item-subtitle>
-            </v-list-item-content>
             </v-list-item>
         </v-list>
         </v-card-text>
