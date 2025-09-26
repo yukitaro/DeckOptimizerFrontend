@@ -32,6 +32,23 @@ interface CardDataFromAPI {
 
 type ColorName = 'plains' | 'islands' | 'swamps' | 'mountains' | 'forests' | 'colorless';
 
+const colorNames: ColorName[] = ['plains', 'islands', 'swamps', 'mountains', 'forests', 'colorless']
+
+const rarities = [
+  { value: 'common', label: 'Common', color: 'grey', icon: 'mdi-circle' },
+  { value: 'uncommon', label: 'Uncommon', color: 'blue-grey', icon: 'mdi-triangle' },
+  { value: 'rare', label: 'Rare', color: 'amber', icon: 'mdi-diamond' },
+  { value: 'mythic', label: 'Mythic', color: 'deep-orange', icon: 'mdi-star' }
+]
+
+const itemsPerPageOptions = [
+  { value: 10, title: '10 per page' },
+  { value: 25, title: '25 per page' },
+  { value: 50, title: '50 per page' },
+  { value: 100, title: '100 per page' },
+  { value: -1, title: 'All' }
+]
+
 const base_url = "http://localhost:80";
 const processedCardData = ref<any[]>([])
 const tableLoadKey = ref(0)
@@ -124,15 +141,18 @@ function processRawCardData(data: CardDataFromAPI[]) {
         const mana_numeric  = getNumericalManaCost(rawCost)
         const mana_colors   = getColorManaCost(rawCost)
 
-        const letters = Array.isArray(cardDataVal.colorIdentities)
+        const colorIdentitiesArray = Array.isArray(cardDataVal.colorIdentities)
             ? cardDataVal.colorIdentities
             : cardDataVal.colorIdentities
-                ? [cardDataVal.colorIdentities]
+                ? cardDataVal.colorIdentities.split('') // Split string into individual letters
                 : []
 
-    const colors = letters
-      .map(l => colorMap[l])
-      .filter(Boolean)      // ← important!
+        // Map each color letter to color names and keep as array
+        const colors = colorIdentitiesArray.length > 0
+            ? colorIdentitiesArray
+                .map(letter => colorMap[letter])
+                .filter(Boolean) // Remove any undefined values
+            : ['colorless'] // Explicitly assign colorless for cards with no color identity
 
         return {
             id: cardDataVal.id,
@@ -140,9 +160,8 @@ function processRawCardData(data: CardDataFromAPI[]) {
             set_name: cardDataVal.set_name,
             official_set_name: setNameMap.value[cardDataVal.set_name],
             type: cardDataVal.type,
-            colors: convertColorToName(cardDataVal.colorIdentities),
-            mana_cost:     rawCost,
-            // <-- new pre-computed props
+            colors: colors,
+            mana_cost: rawCost,
             mana_numeric,   
             mana_colors,              
             image_url: cardDataVal.image_url ?? "",
@@ -152,29 +171,29 @@ function processRawCardData(data: CardDataFromAPI[]) {
 }
 
 
-    function convertColorToName(color: string): ColorName {
-        switch (color) {
-            case 'W': return 'plains'
-            case 'U': return 'islands'
-            case 'B': return 'swamps'
-            case 'R': return 'mountains'
-            case 'G': return 'forests'
-            case '':
-            case null:
-            case undefined:
-            default: return 'colorless'
-        }
+function convertColorToName(color: string): ColorName {
+    switch (color) {
+        case 'W': return 'plains'
+        case 'U': return 'islands'
+        case 'B': return 'swamps'
+        case 'R': return 'mountains'
+        case 'G': return 'forests'
+        case '':
+        case null:
+        case undefined:
+        default: return 'colorless'
     }
+}
 
 const colorMap: Record<string, ColorName> = {
   W: 'plains', U: 'islands', B: 'swamps', R: 'mountains', G: 'forests', C: 'colorless'
 }    
 
-    function toggleColorFilters(colorValue: ColorName) {
-        colorsToggle.value[colorValue] = !colorsToggle.value[colorValue];
-    }
+function toggleColorFilters(colorValue: ColorName) {
+    colorsToggle.value[colorValue] = !colorsToggle.value[colorValue];
+}
 
-    const filteredCardData = computed(() => {
+const filteredCardData = computed(() => {
     const activeNames = Object.entries(colorsToggle.value)
         .filter(([_, on]) => on)
         .map(([name]) => name)
@@ -182,17 +201,18 @@ const colorMap: Record<string, ColorName> = {
     // If no filters are active, return everything
     if (activeNames.length === 0) return processedCardData.value;
 
-    // Otherwise, filter by matching card.colors
+    // Otherwise, filter by matching card.colors (now an array)
     return processedCardData.value.filter(card => {
-        return card.colors && activeNames.includes(card.colors);
+        // Check if the card has any colors that match the active filters
+        return card.colors && card.colors.some((color: string) => activeNames.includes(color));
     });
-    });
+});
 
 
-    const activeColors = computed(() =>
+const activeColors = computed(() =>
     Object.entries(colorsToggle.value)
-        .filter(([_, isActive]) => isActive)
-        .map(([key]) => {
+    .filter(([_, isActive]) => isActive)
+    .map(([key]) => {
         switch (key) {
             case "plains": return "W";
             case "islands": return "U";
@@ -202,328 +222,384 @@ const colorMap: Record<string, ColorName> = {
             case "colorless": return "C";
             default: return null;
         }
-        })
-        .filter(Boolean)
-    );
+    }).filter(Boolean)
+);
     
     const colorFilterParam = computed(() => activeColors.value.join(','));
 
     // Color counts for current results (for badges and visual indicators)
-    const colorCounts = computed(() => {
-        const counts = { plains: 0, islands: 0, swamps: 0, mountains: 0, forests: 0, colorless: 0 }
-        
-        processedCardData.value.forEach((card: any) => {
-            if (card.colors) {
-                const cardColors = Array.isArray(card.colors) ? card.colors : [card.colors]
-                cardColors.forEach((color: string) => {
-                    // Convert color codes back to names for counting
-                    const colorName = convertColorCodeToName(color)
-                    if (colorName && counts.hasOwnProperty(colorName)) {
-                        counts[colorName as keyof typeof counts]++
-                    }
-                })
+const colorCounts = computed(() => {
+  const counts = { plains: 0, islands: 0, swamps: 0, mountains: 0, forests: 0, colorless: 0 }
+  
+  filteredCardData.value.forEach((card: any) => {
+    if (card.colors && card.colors.length > 0) {
+      // If card has colors, count each one
+      card.colors.forEach((colorName: string) => {
+        if (counts.hasOwnProperty(colorName)) {
+          counts[colorName as keyof typeof counts]++
+        }
+      })
+    } else {
+      // If no colors, count as colorless
+      counts.colorless++
+    }
+  })
+  return counts
+})
+
+
+function convertColorCodeToName(colorCode: string): string | null {
+    switch (colorCode) {
+        case 'W': return 'plains'
+        case 'U': return 'islands'
+        case 'B': return 'swamps'
+        case 'R': return 'mountains'
+        case 'G': return 'forests'
+        case '':
+        case null:
+        case undefined: return 'colorless'
+        default: return null
+    }
+}
+
+function hasColorInResults(colorName: string): boolean {
+    return colorCounts.value[colorName as keyof typeof colorCounts.value] > 0
+}
+
+function getColorCount(colorName: string): number {
+    return colorCounts.value[colorName as keyof typeof colorCounts.value] || 0
+}
+
+async function searchByName() {
+    if (selectedRarity.value.length === 0) {
+        selectedRarity.value = ['common', 'uncommon', 'rare', 'mythic']
+    }
+
+    const cardDataResponse = await axios.get(`${base_url}/cards/name/${searchText.value}/rarities/${selectedRarity.value}`, {
+        params: {
+            limit: limitToRetrieve.value
+        }
+    });
+    processRawCardData(cardDataResponse.data);
+}
+
+async function searchAgainstSetData() {
+    if (selectedRarity.value.length === 0) {
+        selectedRarity.value = ['common', 'uncommon', 'rare', 'mythic'];
+    }
+
+    if (searchText.value.length === 0) {
+        const cardDataResponse = await axios.get(`${base_url}/cardsfromsets/${selectedSets.value[0].value}`, {
+            params: {
+                limit: limitToRetrieve.value,
+                colorFilters: colorFilterParam.value
             }
-        })
-        return counts
-    })
+        });
+        processRawCardData(cardDataResponse.data);
+    } else {
 
-    function convertColorCodeToName(colorCode: string): string | null {
-        switch (colorCode) {
-            case 'W': return 'plains'
-            case 'U': return 'islands'
-            case 'B': return 'swamps'
-            case 'R': return 'mountains'
-            case 'G': return 'forests'
-            case '':
-            case null:
-            case undefined: return 'colorless'
-            default: return null
-        }
-    }
-
-    function hasColorInResults(colorName: string): boolean {
-        return colorCounts.value[colorName as keyof typeof colorCounts.value] > 0
-    }
-
-    function getColorCount(colorName: string): number {
-        return colorCounts.value[colorName as keyof typeof colorCounts.value] || 0
-    }
-
-    async function searchByName() {
-        if (selectedRarity.value.length === 0) {
-            selectedRarity.value = ['common', 'uncommon', 'rare', 'mythic']
-        }
-
-        const cardDataResponse = await axios.get(`${base_url}/cards/name/${searchText.value}/rarities/${selectedRarity.value}`, {
+        const cardDataResponse = await axios.get(`${base_url}/cardsfromsets/name/${searchText.value}/rarities/${selectedRarity.value}`, {
             params: {
                 limit: limitToRetrieve.value
             }
         });
         processRawCardData(cardDataResponse.data);
     }
-
-    async function searchWithMultipleCriteria() {
-
-        const cardDataResponse = await axios.get(`${base_url}/cardsfromsets/${selectedSets.value[0].value}`, {
-            params: {
-                limit: limitToRetrieve.value,
-                colorFilters: colorsToggle
-
-            }
-        });
-    }
-
-
-    async function searchAgainstSetData() {
-        if (selectedRarity.value.length === 0) {
-            selectedRarity.value = ['common', 'uncommon', 'rare', 'mythic'];
-        }
-
-        if (searchText.value.length === 0) {
-            const cardDataResponse = await axios.get(`${base_url}/cardsfromsets/${selectedSets.value[0].value}`, {
-                params: {
-                    limit: limitToRetrieve.value,
-                    colorFilters: colorFilterParam.value
-                }
-            });
-            processRawCardData(cardDataResponse.data);
-        } else {
-
-            const cardDataResponse = await axios.get(`${base_url}/cardsfromsets/name/${searchText.value}/rarities/${selectedRarity.value}`, {
-                params: {
-                    limit: limitToRetrieve.value
-                }
-            });
-            processRawCardData(cardDataResponse.data);
-        }
-    }
+}
  </script>
 
 <template>
-    <!--<img src="../../../../data/images/island.svg"></img>-->
-    <v-container fluid>
-        <v-row>
-            <v-btn 
-                :class="{ 
-                    'bg-primary': colorsToggle['plains'],
-                    'color-unavailable': !hasColorInResults('plains') && getColorCount('plains') === 0
-                }" 
-                size="small" 
-                rounded="sm" 
-                @click="toggleColorFilters('plains')"
-            >
-                <Colors color_name="plains" />
-                <v-badge 
-                    v-if="getColorCount('plains') > 0" 
-                    :content="getColorCount('plains')" 
-                    color="success"
-                    offset-x="10"
-                    offset-y="10"
-                />
-            </v-btn>
-            <v-btn 
-                :class="{ 
-                    'bg-primary': colorsToggle['islands'],
-                    'color-unavailable': !hasColorInResults('islands') && getColorCount('islands') === 0
-                }" 
-                size="small" 
-                rounded="sm" 
-                @click="toggleColorFilters('islands')"
-            >
-                <Colors color_name="islands" />
-                <v-badge 
-                    v-if="getColorCount('islands') > 0" 
-                    :content="getColorCount('islands')" 
-                    color="success"
-                    offset-x="10"
-                    offset-y="10"
-                />
-            </v-btn>
-            <v-btn 
-                :class="{ 
-                    'bg-primary': colorsToggle['swamps'],
-                    'color-unavailable': !hasColorInResults('swamps') && getColorCount('swamps') === 0
-                }" 
-                size="small" 
-                rounded="sm" 
-                @click="toggleColorFilters('swamps')"
-            >
-                <Colors color_name="swamps" />
-                <v-badge 
-                    v-if="getColorCount('swamps') > 0" 
-                    :content="getColorCount('swamps')" 
-                    color="success"
-                    offset-x="10"
-                    offset-y="10"
-                />
-            </v-btn>
-            <v-btn 
-                :class="{ 
-                    'bg-primary': colorsToggle['mountains'],
-                    'color-unavailable': !hasColorInResults('mountains') && getColorCount('mountains') === 0
-                }" 
-                size="small" 
-                rounded="sm" 
-                @click="toggleColorFilters('mountains')"
-            >
-                <Colors color_name="mountains" />
-                <v-badge 
-                    v-if="getColorCount('mountains') > 0" 
-                    :content="getColorCount('mountains')" 
-                    color="success"
-                    offset-x="10"
-                    offset-y="10"
-                />
-            </v-btn>
-            <v-btn 
-                :class="{ 
-                    'bg-primary': colorsToggle['forests'],
-                    'color-unavailable': !hasColorInResults('forests') && getColorCount('forests') === 0
-                }" 
-                size="small" 
-                rounded="sm" 
-                @click="toggleColorFilters('forests')"
-            >
-                <Colors color_name="forests" />
-                <v-badge 
-                    v-if="getColorCount('forests') > 0" 
-                    :content="getColorCount('forests')" 
-                    color="success"
-                    offset-x="10"
-                    offset-y="10"
-                />
-            </v-btn>
-            <v-btn 
-                :class="{ 
-                    'bg-primary': colorsToggle['colorless'],
-                    'color-unavailable': !hasColorInResults('colorless') && getColorCount('colorless') === 0
-                }" 
-                size="small" 
-                rounded="sm" 
-                @click="toggleColorFilters('colorless')"
-            >
-                <Colors color_name="colorless" />
-                <v-badge 
-                    v-if="getColorCount('colorless') > 0" 
-                    :content="getColorCount('colorless')" 
-                    color="success"
-                    offset-x="10"
-                    offset-y="10"
-                />
-            </v-btn>
+  <!-- Search Header -->
+  <div class="search-header">
+    <v-card class="search-card">
+      <v-card-text class="pa-6">
+        <div class="search-header-content">
+          <h2 class="text-h4 font-weight-bold text-primary mb-4">Magic Card Search</h2>
+          
+          <!-- Main Search Bar -->
+          <v-text-field v-model="searchText" label="Search for cards..." placeholder="Lightning Bolt, Counterspell, etc." variant="outlined" density="comfortable"
+            class="search-input mb-4" prepend-inner-icon="mdi-magnify" @keyup.enter="searchByName" clearable />
 
-            <v-combobox
-            v-model="selectedSets"
-            clearable
-            chips
-            multiple
-            label="Magic Sets"
-            :items="setData"
-            item-text="title"
-            item-value="value"
-            ></v-combobox>
-            <v-col>
-                <v-row><v-btn @click="searchAgainstSetData" density="compact" color="secondary">Search - Sets</v-btn>  <v-btn color="primary" @click="exportToCSV">Export CSV</v-btn></v-row>
-                <v-row><v-text-field v-model="limitToRetrieve" label="limit"></v-text-field></v-row>
-            </v-col>
-        </v-row>
-        <v-row>
-            <v-checkbox v-model="selectedRarity"
-                label="Common" value="common" hide-details>
-            </v-checkbox>
-            <v-checkbox v-model="selectedRarity"
-                label="Uncommon" value="uncommon" hide-details>
-            </v-checkbox>
-            <v-checkbox v-model="selectedRarity"
-                label="Rare" value="rare" hide-details>
-            </v-checkbox>
-            <v-checkbox v-model="selectedRarity"
-                label="Mythic" value="mythic" hide-details>
-            </v-checkbox>
-        </v-row>
-    </v-container>
-    <v-text-field
-        label="Search"
-        v-model="searchText"
-        @keyup.enter="searchByName"
-    ></v-text-field>    
-    <div>
-    <v-data-table :headers=allHeaders :items="filteredCardData" :key="tableLoadKey" :items-per-page-options="[ {value: 10, title: '10'}, {value: 20, title: '20'}, { title: 'All', value: -1 }]" :items-per-page.sync="itemsPerPage">
-        <template v-slot:item.image_url="{ item }">
-            <!--<a :href="item.image_url" target="_blank">image</a> -->
-            <Popper hover arrow placement="right">
-                <!-- Trigger slot: The element you hover over -->
-                <v-img :src="item.image_url" alt="Thumbnail" class="trigger-image" />
-                <!-- Content slot: The popover content -->
-                <template #content>
-                    <div class="popover-content">
-                        <img :src="item.image_url" alt="Full size" />
+          <!-- Filter Controls -->
+          <v-expansion-panels class="mb-4" variant="accordion">
+            <v-expansion-panel>
+              <v-expansion-panel-title class="text-h6">
+                <v-icon icon="mdi-filter-variant" class="mr-2"></v-icon>
+                Advanced Filters
+              </v-expansion-panel-title>
+              
+              <v-expansion-panel-text>
+                <v-row>
+                  <!-- Color Filters -->
+                  <v-col cols="12" md="6">
+                    <h3 class="text-h6 mb-3">Colors</h3>
+                    <div class="color-filters">
+                      <v-btn v-for="(colorName, index) in colorNames" :key="index" :variant="colorsToggle[colorName] ? 'elevated' : 'outlined'"
+                            :color="colorsToggle[colorName] ? 'primary' : 'default'" :class="{ 'color-unavailable': !hasColorInResults(colorName) && getColorCount(colorName) === 0 }"
+                            class="color-filter-btn ma-1" @click="toggleColorFilters(colorName)">
+                        <Colors :color_name="colorName" />
+                        <v-badge v-if="getColorCount(colorName) > 0" :content="getColorCount(colorName)" color="success" floating />
+                      </v-btn>
                     </div>
-                </template>
-            </Popper>
-        </template>
-        <template v-slot:item.colors="{ item }">
-            <div class="d-flex"> <Colors v-for="(name, idx) in item.colors" :key="idx" :color_name="name" /> </div>
-        </template>
-        <template v-slot:item.mana_cost="{ item }">
-        <div class="card-mana-right">
-            <Colors :mana_cost="item.mana_numeric" />
-            <span
-            v-for="(c, idx) in item.mana_colors"
-            :key="idx"
-            class="color-symbol"
-            >
-            <Colors :color_name="mapColorCodeToName(c)" />
-            </span>
+                  </v-col>
+
+                  <!-- Rarity Filters -->
+                  <v-col cols="12" md="6">
+                    <h3 class="text-h6 mb-3">Rarity</h3>
+                    <div class="rarity-filters">
+                      <v-chip-group v-model="selectedRarity" multiple>
+                        <v-chip  v-for="rarity in rarities" :key="rarity.value" :value="rarity.value" :color="rarity.color" variant="outlined" filter>
+                          <v-icon :icon="rarity.icon" start></v-icon>
+                          {{ rarity.label }}
+                        </v-chip>
+                      </v-chip-group>
+                    </div>
+                  </v-col>
+                </v-row>
+
+                <v-row class="mt-4">
+                  <!-- Set Selection -->
+                  <v-col cols="12" md="8">
+                    <v-combobox
+                      v-model="selectedSets"
+                      :items="setData"
+                      label="Magic Sets"
+                      placeholder="Select sets to search in..."
+                      variant="outlined"
+                      density="comfortable"
+                      multiple
+                      chips
+                      clearable
+                    />
+                  </v-col>
+
+                  <!-- Limit -->
+                  <v-col cols="12" md="4">
+                    <v-text-field
+                      v-model="limitToRetrieve"
+                      label="Result Limit"
+                      type="number"
+                      variant="outlined"
+                      density="comfortable"
+                      min="1"
+                      max="1000"
+                    />
+                  </v-col>
+                </v-row>
+
+                <!-- Action Buttons -->
+                <div class="filter-actions mt-4">
+                  <v-btn 
+                    @click="searchAgainstSetData"
+                    color="primary"
+                    size="large"
+                    prepend-icon="mdi-magnify"
+                    class="mr-3"
+                  >
+                    Search Cards
+                  </v-btn>
+                  
+                  <v-btn 
+                    @click="exportToCSV"
+                    color="secondary"
+                    variant="outlined"
+                    size="large"
+                    prepend-icon="mdi-download"
+                  >
+                    Export CSV
+                  </v-btn>
+                </div>
+              </v-expansion-panel-text>
+            </v-expansion-panel>
+          </v-expansion-panels>
         </div>
+      </v-card-text>
+    </v-card>
+  </div>
+
+  <!-- Results Section -->
+  <div class="results-section">
+    <v-card class="results-card">
+      <v-card-title class="results-header">
+        <div class="d-flex align-center justify-space-between w-100">
+          <h3 class="text-h5">
+            Search Results 
+            <v-chip 
+              v-if="filteredCardData.length > 0" 
+              color="primary" 
+              variant="elevated"
+              class="ml-2"
+            >
+              {{ filteredCardData.length }} cards
+            </v-chip>
+          </h3>
+        </div>
+      </v-card-title>
+
+      <v-data-table
+        :headers="allHeaders"
+        :items="filteredCardData"
+        :key="tableLoadKey"
+        :items-per-page-options="itemsPerPageOptions"
+        :items-per-page="itemsPerPage"
+        class="elevation-0"
+        hover
+      >
+        <!-- Card Image Column -->
+        <template v-slot:item.image_url="{ item }">
+          <Popper hover arrow placement="right">
+            <v-avatar size="48" class="card-thumbnail">
+              <v-img :src="item.image_url" alt="Card thumbnail" />
+            </v-avatar>
+            <template #content>
+              <div class="card-preview">
+                <v-img 
+                  :src="item.image_url" 
+                  alt="Full card"
+                  width="250"
+                  aspect-ratio="0.714"
+                />
+              </div>
+            </template>
+          </Popper>
         </template>
-    </v-data-table>
-    </div>
+
+        <!-- Colors Column -->
+        <template v-slot:item.colors="{ item }">
+          <div class="d-flex align-center">
+            <Colors 
+              v-for="(name, idx) in item.colors" 
+              :key="idx" 
+              :color_name="name"
+              class="mr-1" 
+            />
+          </div>
+        </template>
+
+        <!-- Mana Cost Column -->
+        <template v-slot:item.mana_cost="{ item }">
+          <div class="mana-cost-display d-flex align-center">
+            <Colors :mana_cost="item.mana_numeric" class="mr-1" />
+            <span
+              v-for="(c, idx) in item.mana_colors"
+              :key="idx"
+              class="color-symbol mr-1"
+            >
+              <Colors :color_name="mapColorCodeToName(c)" />
+            </span>
+          </div>
+        </template>
+
+        <!-- Card Text Column -->
+        <template v-slot:item.card_text="{ item }">
+          <div class="card-text-cell">
+            <div class="card-text-content">{{ item.card_text }}</div>
+          </div>
+        </template>
+      </v-data-table>
+    </v-card>
+  </div>
 </template>
 
 <style scoped>
-    table {
-        width: 100%;
-        border-collapse: collapse;
-    }
+/* Search Header Styling */
+.search-header {
+  margin-bottom: 24px;
+}
 
-    th, td {
-        border: 1px solid #ddd;
-        padding: 8px;
-        text-align: left;
-    }
+.search-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
+  backdrop-filter: blur(20px);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
 
-    th {
-        background-color: #f2f2f2;
-    }
+.search-input :deep(.v-field) {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
 
-/* Scoped styles for this component */
-.trigger-image {
-  width: 60px; /* Adjust size as needed */
+/* Filter Controls */
+.color-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.color-filter-btn {
+  border-radius: 8px !important;
+  min-width: 48px;
+  height: 48px;
+}
+
+.rarity-filters :deep(.v-chip) {
+  border-radius: 8px;
+}
+
+.filter-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* Results Section */
+.results-section {
+  margin-top: 24px;
+}
+
+.results-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
+  backdrop-filter: blur(20px);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.results-header {
+  padding: 24px 24px 0 24px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* Table Styling */
+.card-thumbnail {
+  border-radius: 8px;
   cursor: pointer;
+  transition: transform 0.2s ease;
 }
 
-.popover-content {
-  padding: 10px;
+.card-thumbnail:hover {
+  transform: scale(1.1);
 }
 
-.popover-content img {
-  max-width: 300px; /* Adjust size of popover image */
-  height: auto;
+.card-preview {
+  padding: 8px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
-/* Color filter button styles */
-.color-unavailable {
-  opacity: 0.4 !important;
-  filter: grayscale(0.7);
+.mana-cost-display {
+  min-height: 32px;
 }
 
-.color-unavailable:hover {
-  opacity: 0.6 !important;
-  filter: grayscale(0.5);
+.card-text-cell {
+  max-width: 400px;
 }
 
-/* Override Vuetify badge positioning for better visibility */
+.card-text-content {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* Color filter states */
 :deep(.v-badge__wrapper) {
   position: relative;
 }
@@ -532,5 +608,22 @@ const colorMap: Record<string, ColorName> = {
   font-size: 0.75rem;
   min-width: 18px;
   height: 18px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .search-card .v-card-text {
+    padding: 16px !important;
+  }
+  
+  .filter-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .filter-actions .v-btn {
+    width: 100%;
+    margin: 4px 0;
+  }
 }
 </style>

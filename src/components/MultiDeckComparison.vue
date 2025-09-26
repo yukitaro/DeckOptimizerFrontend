@@ -11,9 +11,7 @@ const {
   cardsInSelectedDeck,
   getCardsForDeckByIndex,
   listOfStoredDecks,
-  //moveDeckImmutable,
   resetCardsForSelectedDecks,
-  //selectedDecks
 } = useDeckData()
 
 const deckData = useDeckData()
@@ -23,7 +21,7 @@ const moveDeckImmutable = deckData.moveDeckImmutable
 // 2️⃣ Define type groups and selection
 const typeHierarchy = [
   'Creature',
-  'Artifact',
+  'Artifact', 
   'Instant',
   'Sorcery',
   'Enchantment',
@@ -86,7 +84,6 @@ const groupedItems = computed(() => {
 })
 
 // 8️⃣ Fetch cards when decks change
-// COMBINE: combobox selection → explicit handler
 async function handleSelectionChange(newSelection: Deck[]) {
   // 1️⃣ update selection
   selectedDecks.value = newSelection
@@ -94,8 +91,7 @@ async function handleSelectionChange(newSelection: Deck[]) {
   // 2️⃣ reset all card‐lists
   resetCardsForSelectedDecks(newSelection)
 
-  // 3️⃣ fetch each deck’s cards
-  //    await if you need them in order
+  // 3️⃣ fetch each deck's cards
   await nextTick()
   newSelection.forEach((deck, i) => {
     if (!cardsInSelectedDeck.value[i]?.length) {
@@ -158,7 +154,6 @@ function startResize(index: number, e: MouseEvent) {
 const { downloadCsv } = useCsvExport<any>()
 
 function exportToCSV() {
-
   if (lockedDeckIndexes.value.length === 0) {
     return alert('No data to export')
   }
@@ -176,282 +171,566 @@ function exportToCSV() {
     { key: 'oracle_text', label: 'Text' }
   ]
   
-  downloadCsv(matrix.value, columns, 'mtg_cards_export.csv')
+  downloadCsv(matrix.value, columns, 'mtg_deck_comparison_export.csv')
+}
+
+// Helper function to get type-specific icons
+function getTypeIcon(type: string): string {
+  const iconMap: Record<string, string> = {
+    'Creature': 'mdi-account-multiple',
+    'Artifact': 'mdi-cog',
+    'Instant': 'mdi-flash',
+    'Sorcery': 'mdi-book-open-page-variant',
+    'Enchantment': 'mdi-shimmer',
+    'Land': 'mdi-terrain'
+  }
+  return iconMap[type] || 'mdi-cards'
+}
+
+// Helper function to get count-based colors
+function getCountColor(count: number): string {
+  if (count >= 4) return 'success'
+  if (count >= 2) return 'warning'
+  return 'info'
 }
 </script>
 
 <template>
-  <div class="deck-comparison-container">
-    <!-- 1) Combobox uses @update:model-value instead of v-model -->
-    <v-combobox
-      :items="listOfStoredDecks"
-      :model-value="selectedDecks"
-      @update:modelValue="handleSelectionChange"
-      item-title="deck_name"
-      item-value="deck_id"
-      return-object
-      multiple
-      chips
-      label="Compare Decks"
-      class="mb-4"
-    />
+  <div class="deck-comparison-page">
+    <!-- Header Section -->
+    <div class="comparison-header">
+      <v-card class="header-card">
+        <v-card-text class="pa-6">
+          <div class="header-content">
+            <h2 class="text-h4 font-weight-bold text-primary mb-4">
+              <v-icon icon="mdi-compare" class="mr-3"></v-icon>
+              Multi-Deck Comparison
+            </h2>
+            
+            <!-- Deck Selection -->
+            <v-combobox
+              :items="listOfStoredDecks"
+              :model-value="selectedDecks"
+              @update:modelValue="handleSelectionChange"
+              item-title="deck_name"
+              item-value="deck_id"
+              return-object
+              multiple
+              chips
+              label="Select Decks to Compare"
+              placeholder="Choose multiple decks for side-by-side comparison..."
+              variant="outlined"
+              density="comfortable"
+              class="deck-selector mb-4"
+              prepend-inner-icon="mdi-cards-outline"
+              clearable
+            >
+              <template v-slot:chip="{ props, item }">
+                <v-chip
+                  v-bind="props"
+                  :color="item.raw.locked ? 'success' : 'primary'"
+                  variant="elevated"
+                  closable
+                >
+                  <v-icon 
+                    v-if="item.raw.locked" 
+                    icon="mdi-lock" 
+                    start 
+                    size="16"
+                  ></v-icon>
+                  {{ item.raw.deck_name }}
+                </v-chip>
+              </template>
+            </v-combobox>
 
-    <!-- Type Filter Chips -->
-    <div class="type-filter">
-      <v-switch
-        v-for="type in typeHierarchy"
-        :key="type"
-        filter
-        :input-value="selectedTypes.includes(type)"
-        :label="type"
-        @click="toggleType(type)"
-        class="ma-1"
-      />
+            <!-- Type Filters -->
+            <v-expansion-panels class="mb-4" variant="accordion">
+              <v-expansion-panel>
+                <v-expansion-panel-title class="text-h6">
+                  <v-icon icon="mdi-filter-variant" class="mr-2"></v-icon>
+                  Card Type Filters
+                  <v-chip 
+                    v-if="selectedTypes.length < typeHierarchy.length"
+                    color="primary" 
+                    size="small" 
+                    class="ml-2"
+                  >
+                    {{ selectedTypes.length }}/{{ typeHierarchy.length }}
+                  </v-chip>
+                </v-expansion-panel-title>
+                
+                <v-expansion-panel-text>
+                  <div class="type-filters">
+                    <v-chip-group 
+                      v-model="selectedTypes" 
+                      multiple
+                      @update:model-value="(newValue) => selectedTypes = newValue"
+                    >
+                      <v-chip
+                        v-for="type in typeHierarchy"
+                        :key="type"
+                        :value="type"
+                        :color="selectedTypes.includes(type) ? 'primary' : 'default'"
+                        :variant="selectedTypes.includes(type) ? 'elevated' : 'outlined'"
+                        filter
+                      >
+                        {{ type }}
+                      </v-chip>
+                    </v-chip-group>
+                  </div>
+                </v-expansion-panel-text>
+              </v-expansion-panel>
+            </v-expansion-panels>
+
+            <!-- Action Buttons -->
+            <div class="action-buttons">
+              <v-btn
+                v-if="lockedDeckIndexes.length > 0"
+                @click="exportToCSV"
+                color="secondary"
+                variant="elevated"
+                size="large"
+                prepend-icon="mdi-download"
+              >
+                Export Shopping List
+              </v-btn>
+              
+              <v-chip
+                v-if="selectedDecks.length > 0"
+                color="info"
+                variant="outlined"
+                size="large"
+              >
+                {{ selectedDecks.length }} deck{{ selectedDecks.length !== 1 ? 's' : '' }} selected
+              </v-chip>
+            </div>
+          </div>
+        </v-card-text>
+      </v-card>
     </div>
 
-<div class="comparison-row header-row">
-  <div class="card-row header-card-row">
-    <div class="card-name-left">Card</div>
-    <div class="card-mana-right">Mana</div>
-  </div>
+    <!-- Comparison Table -->
+    <div class="comparison-content" v-if="selectedDecks.length > 0">
+      <v-card class="comparison-card">
+        <div class="comparison-table">
+          <!-- Header Row -->
+          <div class="comparison-row header-row">
+            <div class="card-info-column">
+              <div class="card-name-header">Card Name</div>
+              <div class="card-mana-header">Mana Cost</div>
+            </div>
 
-<draggable
-  tag="div"
-  class="deck-columns"
-  :modelValue="selectedDecks"
-  item-key="deck_id"
-  @end="onDeckReorder"
-  :animation="200"
->
-  <template #item="{ element, index }">
-    <div
-      class="card-cell deck-header-cell"
-      :style="{ width: deckWidths[index] + 'px' }">
-      <span>{{ element.deck_name }}</span>
-      <v-icon
-        size="18"
-        class="ml-1 lock-icon"
-        :color="element.locked ? 'green' : 'grey'"
-        @click.stop="toggleDeckLock(index)">
-        {{ element.locked ? 'mdi-lock' : 'mdi-lock-open' }}
-      </v-icon>
+            <!-- Draggable Deck Headers -->
+            <draggable
+              tag="div"
+              class="deck-columns"
+              :modelValue="selectedDecks"
+              item-key="deck_id"
+              @end="onDeckReorder"
+              :animation="200"
+            >
+              <template #item="{ element, index }">
+                <div
+                  class="deck-header-cell"
+                  :style="{ width: deckWidths[index] + 'px' }"
+                >
+                  <div class="deck-header-content">
+                    <span class="deck-name">{{ element.deck_name }}</span>
+                    <v-tooltip :text="element.locked ? 'Locked for shopping list' : 'Click to lock for shopping list'">
+                      <template v-slot:activator="{ props }">
+                        <v-btn
+                          v-bind="props"
+                          :icon="element.locked ? 'mdi-lock' : 'mdi-lock-open'"
+                          :color="element.locked ? 'success' : 'default'"
+                          size="small"
+                          variant="text"
+                          @click.stop="toggleDeckLock(index)"
+                        />
+                      </template>
+                    </v-tooltip>
+                  </div>
 
-      <!-- Resize handle: excluded from drag -->
-      <div class="resize-handle" @mousedown.stop.prevent="startResize(index, $event)"></div>
-    </div>
-  </template>
-</draggable>
+                  <!-- Resize Handle -->
+                  <div 
+                    class="resize-handle" 
+                    @mousedown.stop.prevent="startResize(index, $event)"
+                  ></div>
+                </div>
+              </template>
+            </draggable>
 
+            <div class="total-column">
+              <v-icon icon="mdi-lock" color="success" size="16" class="mr-1"></v-icon>
+              Locked Total
+            </div>
+          </div>
 
+          <!-- Card Rows Grouped by Type -->
+          <template v-for="type in typeHierarchy" :key="type">
+            <div 
+              v-if="groupedItems[type].length > 0"
+              class="type-section"
+            >
+              <!-- Type Banner -->
+              <div class="type-banner">
+                <v-icon :icon="getTypeIcon(type)" class="mr-2"></v-icon>
+                {{ type }}
+                <v-chip 
+                  color="primary" 
+                  size="small" 
+                  variant="outlined"
+                  class="ml-2"
+                >
+                  {{ groupedItems[type].length }}
+                </v-chip>
+              </div>
 
-      <div class="card-cell card-total">Total</div>
-    </div>
+              <!-- Cards of this type -->
+              <div
+                v-for="card in groupedItems[type]"
+                :key="card.name"
+                class="comparison-row card-row"
+              >
+                <div class="card-info-column">
+                  <CardRow 
+                    :card="card" 
+                    :count="Object.values(card.deckCounts).reduce((sum: number, c: number) => sum + c, 0)" 
+                  />
+                </div>
 
-    <!-- Grouped Rows by Type -->
-    <template v-for="type in typeHierarchy" :key="type">
-      <div class="type-banner">{{ type }}</div>
+                <div class="deck-columns">
+                  <div
+                    v-for="(deck, index) in selectedDecks"
+                    :key="deck.deck_id"
+                    class="card-count-cell" 
+                    :style="{ width: deckWidths[index] + 'px' }"
+                  >
+                    <v-chip
+                      v-if="card.deckCounts[`deck_${deck.deck_id}`]"
+                      :color="getCountColor(card.deckCounts[`deck_${deck.deck_id}`])"
+                      size="small"
+                      variant="elevated"
+                    >
+                      {{ card.deckCounts[`deck_${deck.deck_id}`] }}
+                    </v-chip>
+                    <span v-else class="no-card">-</span>
+                  </div>
+                </div>
 
-      <div
-        v-for="card in groupedItems[type]"
-        :key="card.name"
-        class="comparison-row"
-      >
-        <CardRow :card="card" :count="Object.values(card.deckCounts).reduce((sum: number, c: number) => sum + c, 0)" />
+                <div class="total-column">
+                  <v-chip
+                    v-if="getLockedTotal(card) > 0"
+                    color="success"
+                    size="small"
+                    variant="elevated"
+                  >
+                    {{ getLockedTotal(card) }}
+                  </v-chip>
+                  <span v-else class="no-total">-</span>
+                </div>
+              </div>
+            </div>
+          </template>
 
-        <div class="deck-columns">
-          <div
-            v-for="(deck, index) in selectedDecks"
-            :key="deck.deck_id"
-            class="card-cell card-count" 
-            :style="{ width: deckWidths[index] + 'px' }">
-            {{ card.deckCounts[`deck_${deck.deck_id}`] ?? '-' }}
+          <!-- Empty State -->
+          <div v-if="filteredMatrix.length === 0" class="empty-state">
+            <v-icon icon="mdi-cards-outline" size="64" color="grey"></v-icon>
+            <h3 class="text-h6 mt-4 mb-2">No cards to display</h3>
+            <p class="text-body-2 text-grey">
+              Try adjusting your type filters or selecting different decks.
+            </p>
           </div>
         </div>
+      </v-card>
+    </div>
 
-        <div class="card-cell card-total">
-          {{ getLockedTotal(card) }}
-        </div>
-      </div>
-    </template>
+    <!-- Empty State for No Decks -->
+    <div v-else class="no-decks-state">
+      <v-card class="empty-card">
+        <v-card-text class="text-center pa-8">
+          <v-icon icon="mdi-compare" size="80" color="grey-lighten-1"></v-icon>
+          <h3 class="text-h5 mt-4 mb-2">Ready to Compare Decks</h3>
+          <p class="text-body-1 text-grey mb-4">
+            Select multiple decks from the dropdown above to see a side-by-side comparison of their cards.
+          </p>
+          <v-list class="comparison-features">
+            <v-list-item prepend-icon="mdi-drag">
+              <v-list-item-title>Drag to reorder deck columns</v-list-item-title>
+            </v-list-item>
+            <v-list-item prepend-icon="mdi-lock">
+              <v-list-item-title>Lock decks to build a shopping list</v-list-item-title>
+            </v-list-item>
+            <v-list-item prepend-icon="mdi-filter">
+              <v-list-item-title>Filter by card type</v-list-item-title>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+      </v-card>
+    </div>
   </div>
 </template>
 
-<style lang="scss" scoped>
-.deck-comparison-container {
-  padding: 16px;
+<style scoped>
+/* Page Layout */
+.deck-comparison-page {
+  padding: 24px;
+  max-width: 100%;
   overflow-x: auto;
-  font-size: 14px;
 }
 
-/* Type filter chips */
-.type-filter {
-  margin-bottom: 1rem;
+/* Header Section */
+.comparison-header {
+  margin-bottom: 24px;
+}
+
+.header-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
+  backdrop-filter: blur(20px);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.deck-selector :deep(.v-field) {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.type-filters {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-/* Main comparison table container */
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Comparison Table */
+.comparison-content {
+  margin-top: 24px;
+}
+
+.comparison-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
+  backdrop-filter: blur(20px);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+
 .comparison-table {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   min-width: fit-content;
   overflow-x: auto;
-  background-color: #fdfdfd;
-  border-radius: 6px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-  padding-bottom: 12px;
-  overflow-x: auto;
 }
 
-/* Type section headers */
-.type-banner {
-  background-color: #dbe4ff;
-  font-weight: bold;
-  text-transform: uppercase;
-  padding: 8px 12px;
-  border-top: 1px solid #b0c4ff;
-  border-bottom: 1px solid #b0c4ff;
-  color: #1a237e;
-  letter-spacing: 0.5px;
-}
-
-/* Shared row layout */
 .comparison-row {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid #eee;
-  padding: 4px 8px;
-  min-width: fit-content; // ✅ prevent flex shrink
+  min-height: 48px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 8px 16px;
 }
 
-/* Header row */
+/* Header Row */
 .header-row {
-  font-weight: bold;
-  background-color: #f0f4ff;
-  border-bottom: 2px solid #b0c4ff;
+  background: linear-gradient(135deg, rgba(33, 150, 243, 0.1) 0%, rgba(33, 150, 243, 0.05) 100%);
+  font-weight: 600;
+  border-bottom: 2px solid rgba(33, 150, 243, 0.2);
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 10;
 }
 
-/* Shared cell styles */
-.card-cell {
-  flex-shrink: 0;
-  padding: 0 8px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* CardRow container */
-.card-row {
+/* Column Layouts */
+.card-info-column {
   display: flex;
   justify-content: space-between;
   align-items: center;
   min-width: 320px;
   max-width: 400px;
-  padding: 0 8px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding: 0 16px;
   flex-shrink: 0;
 }
 
-.header-card-row {
-  background-color: #f0f4ff;
-  font-weight: bold;
-  border-bottom: 2px solid #b0c4ff;
+.card-name-header,
+.card-mana-header {
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.87);
 }
 
-.card-name-left {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-mana-right {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  justify-content: flex-end;
-}
-
-/* Deck count columns */
-.card-count {
-  width: 80px;
-  text-align: center;
-  font-weight: bold;
-}
-
-/* Locked total column */
-.card-total {
-  width: 80px;
-  text-align: center;
-  font-weight: bold;
-  color: #1b5e20;
-  border-left: 1px solid #ccc;
-}
-
-/* Draggable deck columns */
 .deck-columns {
   display: flex;
   flex-direction: row;
   gap: 8px;
   flex-wrap: nowrap;
   overflow-x: auto;
-  min-width: fit-content; // ✅ allow horizontal growth
+  min-width: fit-content;
 }
 
-
-/* Color symbol alignment */
-.color-symbol {
-  display: inline-flex;
+.deck-header-cell {
+  position: relative;
+  display: flex;
   align-items: center;
   justify-content: center;
+  min-height: 48px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  cursor: grab;
+  transition: all 0.2s ease;
 }
 
-/* Optional: highlight common/partial cards */
-.common {
-  font-weight: bold;
-  color: #1b5e20;
+.deck-header-cell:hover {
+  background: rgba(255, 255, 255, 0.9);
+  transform: translateY(-1px);
 }
 
-.partial {
-  color: #f57c00;
-}
-
-.deck-header-cell {
-  position: relative;
+.deck-header-content {
   display: flex;
   align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  width: 100%;
   justify-content: space-between;
-  overflow: hidden;
-  padding-right: 6px;
 }
 
-.deck-header-cell {
-  position: relative;
+.deck-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.card-count-cell {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  overflow: hidden;
-  padding-right: 6px;
-  cursor: grab; // ✅ entire cell is draggable
+  justify-content: center;
+  min-height: 40px;
+  flex-shrink: 0;
 }
 
+.total-column {
+  width: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  border-left: 2px solid rgba(76, 175, 80, 0.2);
+  background: rgba(76, 175, 80, 0.05);
+  border-radius: 0 8px 8px 0;
+  flex-shrink: 0;
+}
+
+/* Type Sections */
+.type-section {
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.type-banner {
+  background: linear-gradient(135deg, rgba(103, 58, 183, 0.1) 0%, rgba(103, 58, 183, 0.05) 100%);
+  color: rgba(103, 58, 183, 1);
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(103, 58, 183, 0.2);
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  position: sticky;
+  top: 48px;
+  z-index: 9;
+}
+
+.card-row {
+  transition: background-color 0.2s ease;
+}
+
+.card-row:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+/* Resize Handle */
 .resize-handle {
   position: absolute;
   right: 0;
   top: 0;
-  width: 6px;
+  width: 8px;
   height: 100%;
   cursor: col-resize;
-  background-color: rgba(0, 0, 0, 0.1);
-  border-left: 1px solid #ccc;
+  background: linear-gradient(to right, transparent, rgba(0, 0, 0, 0.1));
+  border-radius: 0 8px 8px 0;
   z-index: 2;
+}
+
+.resize-handle:hover {
+  background: linear-gradient(to right, transparent, rgba(33, 150, 243, 0.3));
+}
+
+/* Card Count Styling */
+.no-card,
+.no-total {
+  color: rgba(0, 0, 0, 0.38);
+  font-style: italic;
+}
+
+/* Empty States */
+.empty-state,
+.no-decks-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.empty-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
+  backdrop-filter: blur(20px);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.comparison-features {
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 8px;
+  max-width: 350px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .deck-comparison-page {
+    padding: 16px;
+  }
+  
+  .header-card .v-card-text {
+    padding: 16px !important;
+  }
+  
+  .card-info-column {
+    min-width: 250px;
+    max-width: 300px;
+  }
+  
+  .action-buttons {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .action-buttons .v-btn {
+    width: 100%;
+  }
 }
 </style>

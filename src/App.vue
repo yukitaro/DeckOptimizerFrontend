@@ -15,27 +15,23 @@
 
         <!-- Navigation -->
         <div class="app-navigation">
-          <v-btn
-            :to="'/'"
-            :variant="$route.path === '/' ? 'elevated' : 'text'"
-            :color="$route.path === '/' ? 'primary' : 'default'"
-            size="large"
-            class="nav-btn mr-3"
-            prepend-icon="mdi-magnify"
-          >
+          <v-btn :to="'/'" :variant="$route.path === '/' ? 'elevated' : 'text'"
+            :color="$route.path === '/' ? 'primary' : 'default'" size="large" class="nav-btn mr-3"
+            prepend-icon="mdi-magnify">
             Search
           </v-btn>
           
-          <v-btn
-            :to="'/decks'"
-            :variant="$route.path === '/decks' ? 'elevated' : 'text'"
-            :color="$route.path === '/decks' ? 'primary' : 'default'"
-            size="large"
-            class="nav-btn"
-            prepend-icon="mdi-cards-variant"
-          >
+          <v-btn :to="'/decks'" :variant="$route.path === '/decks' ? 'elevated' : 'text'"
+            :color="$route.path === '/decks' ? 'primary' : 'default'" size="large"
+            class="nav-btn" prepend-icon="mdi-cards-variant">
             Decks
           </v-btn>
+
+          <v-btn :to="'/collections'" :variant="$route.path === '/collections' ? 'elevated' : 'text'"
+            :color="$route.path === '/collections' ? 'primary' : 'default'" size="large"
+            class="nav-btn" prepend-icon="mdi-archive">
+            Collection
+          </v-btn>          
         </div>
       </div>
     </v-app-bar>

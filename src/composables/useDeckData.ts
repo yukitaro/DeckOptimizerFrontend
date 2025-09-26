@@ -1,5 +1,5 @@
 import { Deck, Card } from '@/utils/types'
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import axios from 'axios'
 import { retrieveCardsForDeck } from '@/utils/deckUtils';
 
@@ -113,6 +113,23 @@ export function useDeckData() {
     cardsInSelectedDeck.value = cards
   }
 
+
+  // 8️⃣ Fetch cards when decks change
+  async function handleSingleDeckChange(newSelection: Deck) {
+    // 1️⃣ update selection
+    selectedDecks.value = []
+    cardsInSelectedDeck.value = []
+
+    if (newSelection) {
+      selectedDecks.value = [ newSelection ]
+      cardsInSelectedDeck.value = [[]]
+    }
+
+    // 3️⃣ fetch each deck's cards
+    await nextTick()
+    getCardsForDeckByIndex(newSelection.deck_id, 0)
+  }  
+
   return {
     addDeckForComparison,
     cardsInSelectedDeck,
@@ -121,6 +138,7 @@ export function useDeckData() {
     getCardsForDeck,
     getCardsForDeckByIndex,
     getDecksFromDB,
+    handleSingleDeckChange,
     listOfStoredDecks,
     moveDeckImmutable,
     removeDeck,

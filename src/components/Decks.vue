@@ -35,7 +35,7 @@ const hoveredCard = ref(null)
 const deckToDelete = ref(null)
 const showConfirmDialog = ref(false)
 
-const { cardsInSelectedDeck, deleteDeck, getCardsForDeck, getDecksFromDB, listOfStoredDecks, setDecks } = useDeckData()
+const { cardsInSelectedDeck, deleteDeck, getCardsForDeck, getDecksFromDB, handleSingleDeckChange, listOfStoredDecks, setDecks } = useDeckData()
 
 // Mk. ][
 const deckSearch = ref('')
@@ -233,6 +233,12 @@ const activeCard = computed(() => {
   )
 })
 
+function switchToDeckDisplay(deck) {
+  handleSingleDeckChange(deck)
+  //selectedDeck.value = deck;
+  tab.value = 'Deck Display 2';
+}
+
 // 2️⃣ When the deck’s cards load, clear any stale hover so we default to first card
 watch(cardsInSelectedDeck, (newVal) => {
   hoveredCard.value = null
@@ -289,7 +295,7 @@ onMounted(async () => {
               </p>
             </div>
 
-            <v-form v-model="valid">
+            <v-form>
               <v-row class="deck-import-layout" no-gutters>
                 <!-- Left Panel: Deck Information -->
                 <v-col cols="12" lg="5" class="deck-info-panel">
@@ -455,7 +461,8 @@ onMounted(async () => {
         <v-card v-if="tab === 'Deck Display 2'" class="pa-4 custom-card-background">
 <!-- 🔍 Deck Selector -->
           <v-text-field v-model="deckSearch" label="Search decks" placeholder="Goblin, Rakdos, Mono Blue Terror…" clearable class="mb-4" />
-          <v-autocomplete v-model="selectedDeck" :items="filteredDecks" item-title="deck_name" item-value="deck_id" return-object label="Select a Deck" class="mb-4">
+          <v-autocomplete v-model="selectedDeck" :items="filteredDecks" item-title="deck_name" item-value="deck_id" return-object label="Select a Deck"
+            class="mb-4" @update:model-value="handleSingleDeckChange">
             <template #item="{ item, props }">
               <v-list-item v-bind="props" :key="item.deck_id">
                 <v-list-item-title>{{ item.deck_name }}</v-list-item-title>
@@ -537,11 +544,11 @@ onMounted(async () => {
     {{ toastMessage }}
   </v-snackbar>
   <v-list>
-    <v-list-item v-for="(deck, index) in listOfStoredDecks" :key="deck.deck_id">
+    <v-list-item v-for="(deck, index) in listOfStoredDecks" :key="deck.deck_id" @click="switchToDeckDisplay(deck)" style="cursor:pointer;">
         <v-list-item-title>{{ deck.deck_name }}</v-list-item-title>
         <v-list-item-subtitle v-if="deck.description">{{ deck.description }}</v-list-item-subtitle>
         {{ deck.archetype }}
-        <v-icon class="ml-auto" @click="confirmDelete(deck)" title="Delete Deck">mdi-delete</v-icon>
+        <v-icon class="ml-auto" @click.stop="confirmDelete(deck)" title="Delete Deck">mdi-delete</v-icon>
       <v-divider v-if="index < listOfStoredDecks.length - 1" class="my-2"></v-divider>
     </v-list-item>
   </v-list>
