@@ -1,5 +1,498 @@
-<script setup lang="ts">
+<script setup>
+import { reactive, ref, onMounted } from 'vue'
+import axios from 'axios'
+
+const base_url = "http://localhost:80";
+
+const csvFile = ref(null)
+const listOfCollections = ref([])
+const selectedCollection = ref(null)
+const selectedMode = ref('merge')
+const collections = ref([])
+const importSummary = ref(null)
+const isImporting = ref(false)
+
+const tab = ref('Create Collection')
+const tabLabels = ['Create Collection', 'Add to Collections', 'View Collections'];
+
+const newCollectionFields = reactive({
+    name: '',
+    description: ''
+})
+
+const modeOptions = [
+    { title: 'Merge with Existing', value: 'merge', subtitle: 'Add to existing card counts' },
+    { title: 'Set Count', value: 'set', subtitle: 'Override existing card counts' },
+    { title: 'Create New', value: 'new', subtitle: 'Create new entries only' }
+]
+
+const handleFileUpload = (event) => {
+    csvFile.value = event.target.files[0]
+}
+
+const submitImport = async () => {
+    if (!csvFile.value || !selectedCollection.value) return
+    
+    isImporting.value = true
+    const formData = new FormData()
+    formData.append('csv', csvFile.value)
+    formData.append('collection_id', selectedCollection.value)
+    formData.append('mode', selectedMode.value)
+
+    try {
+        const response = await axios.post(`${base_url}/api/collections/import-csv`, formData)
+        importSummary.value = response.data.summary || 'Import completed successfully.'
+    } catch (error) {
+        importSummary.value = error.response?.data?.message || 'Import failed.'
+        console.error('Import error:', error)
+    } finally {
+        isImporting.value = false
+    }
+}
+
+const createCollection = async () => {
+    if (!newCollectionFields.name.trim()) return
+    
+    try {
+        const response = await axios.post(`${base_url}/api/collections/create`, {
+            name: newCollectionFields.name,
+            description: newCollectionFields.description
+        })
+        
+        // Reset form
+        newCollectionFields.name = ''
+        newCollectionFields.description = ''
+        
+        // Refresh collections list
+        await fetchCollections()
+        
+        console.log('Collection created:', response.data)
+    } catch (error) {
+        console.error('Error creating collection:', error)
+    }
+}
+
+const fetchCollections = async () => {
+    try {
+        const response = await axios.get(`${base_url}/collections`)
+        listOfCollections.value = response.data
+    } catch (error) {
+        console.error('Error fetching collections:', error)
+    }
+}
+
+onMounted(fetchCollections)
 </script>
+
 <template>
-    Hello World!
+    <!-- Header Card -->
+    <v-card class="collections-header-card mb-6">
+        <v-toolbar color="transparent" class="px-4">
+            <v-icon icon="mdi-folder-multiple" class="mr-3" size="28"></v-icon>
+            <v-toolbar-title class="text-h4 font-weight-bold">Collection Management</v-toolbar-title>
+            
+            <template v-slot:extension>
+                <v-tabs 
+                    v-model="tab" 
+                    align-tabs="center"
+                    color="primary"
+                    slider-color="primary"
+                    class="collections-tabs"
+                >
+                    <v-tab 
+                        v-for="label in tabLabels" 
+                        :key="label" 
+                        :value="label"
+                        class="tab-item"
+                    >
+                        <v-icon 
+                            :icon="label === 'Create Collection' ? 'mdi-plus-circle' : 
+                                  label === 'Add to Collections' ? 'mdi-upload' : 'mdi-view-list'"
+                            class="mr-2"
+                        ></v-icon>
+                        {{ label }}
+                    </v-tab>
+                </v-tabs>
+            </template>
+        </v-toolbar>
+    </v-card>
+
+    <!-- Tab Content -->
+    <v-window v-model="tab" transition="fade-transition">
+        <!-- Create Collection Tab -->
+        <v-window-item value="Create Collection">
+            <v-card class="collection-form-card">
+                <v-card-text class="pa-8">
+                    <div class="form-header mb-6">
+                        <h2 class="text-h5 font-weight-bold text-primary mb-2">
+                            <v-icon icon="mdi-plus-circle" class="mr-2"></v-icon>
+                            Create New Collection
+                        </h2>
+                        <p class="text-body-1 text-medium-emphasis">
+                            Set up a new Magic card collection to organize and track your cards
+                        </p>
+                    </div>
+
+                    <v-form class="collection-form">
+                        <v-text-field
+                            v-model="newCollectionFields.name"
+                            label="Collection Name"
+                            placeholder="Enter a name for your collection..."
+                            variant="outlined"
+                            density="comfortable"
+                            prepend-inner-icon="mdi-folder"
+                            class="mb-4"
+                            :rules="[v => !!v || 'Collection name is required']"
+                            required
+                        ></v-text-field>
+
+                        <v-textarea
+                            v-model="newCollectionFields.description"
+                            label="Description"
+                            placeholder="Describe your collection (optional)..."
+                            variant="outlined"
+                            density="comfortable"
+                            prepend-inner-icon="mdi-text"
+                            rows="4"
+                            class="mb-6"
+                        ></v-textarea>
+
+                        <div class="form-actions">
+                            <v-btn
+                                @click="createCollection"
+                                color="primary"
+                                size="large"
+                                variant="elevated"
+                                prepend-icon="mdi-plus"
+                                :disabled="!newCollectionFields.name.trim()"
+                                class="create-btn"
+                            >
+                                Create Collection
+                            </v-btn>
+                        </div>
+                    </v-form>
+                </v-card-text>
+            </v-card>
+        </v-window-item>
+
+        <!-- Add to Collections Tab -->
+        <v-window-item value="Add to Collections">
+            <v-card class="import-form-card">
+                <v-card-text class="pa-8">
+                    <div class="form-header mb-6">
+                        <h2 class="text-h5 font-weight-bold text-primary mb-2">
+                            <v-icon icon="mdi-upload" class="mr-2"></v-icon>
+                            Import Cards to Collection
+                        </h2>
+                        <p class="text-body-1 text-medium-emphasis">
+                            Upload a CSV file to add cards to your existing collection
+                        </p>
+                    </div>
+
+                    <v-form class="import-form">
+                        <!-- Collection Selection -->
+                        <v-select
+                            v-model="selectedCollection"
+                            :items="listOfCollections"
+                            item-title="name"
+                            item-value="id"
+                            label="Choose Collection"
+                            placeholder="Select a collection..."
+                            variant="outlined"
+                            density="comfortable"
+                            prepend-inner-icon="mdi-folder-open"
+                            class="mb-4"
+                            :rules="[v => !!v || 'Please select a collection']"
+                        >
+                            <template v-slot:item="{ props, item }">
+                                <v-list-item v-bind="props">
+                                    <v-list-item-title>{{ item.raw.name }}</v-list-item-title>
+                                    <v-list-item-subtitle v-if="item.raw.description">
+                                        {{ item.raw.description }}
+                                    </v-list-item-subtitle>
+                                </v-list-item>
+                            </template>
+                        </v-select>
+
+                        <!-- Import Mode Selection -->
+                        <v-select
+                            v-model="selectedMode"
+                            :items="modeOptions"
+                            label="Import Mode"
+                            placeholder="Choose how to handle existing cards..."
+                            variant="outlined"
+                            density="comfortable"
+                            prepend-inner-icon="mdi-cog"
+                            class="mb-4"
+                        >
+                            <template v-slot:item="{ props, item }">
+                                <v-list-item v-bind="props">
+                                    <v-list-item-title>{{ item.raw.title }}</v-list-item-title>
+                                    <v-list-item-subtitle>{{ item.raw.subtitle }}</v-list-item-subtitle>
+                                </v-list-item>
+                            </template>
+                        </v-select>
+
+                        <!-- File Upload -->
+                        <v-file-input
+                            v-model="csvFile"
+                            label="Upload CSV File"
+                            placeholder="Choose a CSV file..."
+                            accept=".csv"
+                            variant="outlined"
+                            density="comfortable"
+                            prepend-inner-icon="mdi-file-upload"
+                            prepend-icon=""
+                            class="mb-6"
+                            :rules="[v => !!v || 'Please select a CSV file']"
+                        ></v-file-input>
+
+                        <!-- Action Buttons -->
+                        <div class="form-actions">
+                            <v-btn
+                                @click="submitImport"
+                                :disabled="!csvFile || !selectedCollection || isImporting"
+                                :loading="isImporting"
+                                color="primary"
+                                size="large"
+                                variant="elevated"
+                                prepend-icon="mdi-upload"
+                                class="import-btn"
+                            >
+                                {{ isImporting ? 'Importing...' : 'Import Cards' }}
+                            </v-btn>
+                        </div>
+                    </v-form>
+
+                    <!-- Import Results -->
+                    <v-card 
+                        v-if="importSummary" 
+                        class="mt-6 import-results"
+                        variant="outlined"
+                    >
+                        <v-card-title class="text-h6 font-weight-bold">
+                            <v-icon icon="mdi-information" class="mr-2"></v-icon>
+                            Import Summary
+                        </v-card-title>
+                        <v-card-text>
+                            <pre class="import-summary-text">{{ importSummary }}</pre>
+                        </v-card-text>
+                    </v-card>
+                </v-card-text>
+            </v-card>
+        </v-window-item>
+
+        <!-- View Collections Tab -->
+        <v-window-item value="View Collections">
+            <v-card class="collections-view-card">
+                <v-card-text class="pa-8">
+                    <div class="form-header mb-6">
+                        <h2 class="text-h5 font-weight-bold text-primary mb-2">
+                            <v-icon icon="mdi-view-list" class="mr-2"></v-icon>
+                            Your Collections
+                        </h2>
+                        <p class="text-body-1 text-medium-emphasis">
+                            Browse and manage your Magic card collections
+                        </p>
+                    </div>
+
+                    <v-row v-if="listOfCollections.length > 0">
+                        <v-col 
+                            v-for="collection in listOfCollections" 
+                            :key="collection.id"
+                            cols="12" 
+                            md="6" 
+                            lg="4"
+                        >
+                            <v-card class="collection-item-card" variant="outlined">
+                                <v-card-text class="pa-4">
+                                    <h3 class="text-h6 font-weight-bold mb-2">
+                                        {{ collection.name }}
+                                    </h3>
+                                    <p v-if="collection.description" class="text-body-2 text-medium-emphasis">
+                                        {{ collection.description }}
+                                    </p>
+                                    <p v-else class="text-body-2 text-disabled">
+                                        No description provided
+                                    </p>
+                                </v-card-text>
+                                <v-card-actions class="pa-4 pt-0">
+                                    <v-btn 
+                                        variant="outlined" 
+                                        size="small"
+                                        prepend-icon="mdi-eye"
+                                    >
+                                        View Cards
+                                    </v-btn>
+                                    <v-spacer></v-spacer>
+                                    <v-btn 
+                                        variant="text" 
+                                        size="small" 
+                                        icon="mdi-dots-vertical"
+                                    ></v-btn>
+                                </v-card-actions>
+                            </v-card>
+                        </v-col>
+                    </v-row>
+
+                    <v-empty-state
+                        v-else
+                        icon="mdi-folder-plus"
+                        title="No Collections Yet"
+                        text="Create your first collection to start organizing your Magic cards"
+                    >
+                        <template v-slot:actions>
+                            <v-btn
+                                @click="tab = 'Create Collection'"
+                                color="primary"
+                                variant="elevated"
+                                prepend-icon="mdi-plus"
+                            >
+                                Create Collection
+                            </v-btn>
+                        </template>
+                    </v-empty-state>
+                </v-card-text>
+            </v-card>
+        </v-window-item>
+    </v-window>
 </template>
+
+<style scoped>
+/* Header Styles */
+.collections-header-card {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.collections-tabs .tab-item {
+    text-transform: none;
+    font-weight: 500;
+    letter-spacing: 0.25px;
+}
+
+/* Form Card Styles */
+.collection-form-card,
+.import-form-card,
+.collections-view-card {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(20px);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* Form Header */
+.form-header {
+    text-align: center;
+    padding: 16px;
+    background: linear-gradient(90deg, rgba(33, 150, 243, 0.05), rgba(76, 175, 80, 0.05));
+    border-radius: 12px;
+    margin: -16px -16px 24px -16px;
+}
+
+/* Form Styles */
+.collection-form,
+.import-form {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+/* Button Styles */
+.create-btn,
+.import-btn {
+    border-radius: 12px;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0.5px;
+    box-shadow: 0 4px 16px rgba(33, 150, 243, 0.3);
+    transition: all 0.3s ease;
+    min-width: 160px;
+}
+
+.create-btn:hover,
+.import-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(33, 150, 243, 0.4);
+}
+
+.create-btn:disabled,
+.import-btn:disabled {
+    opacity: 0.6;
+    transform: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Form Actions */
+.form-actions {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 24px;
+}
+
+/* Import Results */
+.import-results {
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+}
+
+.import-summary-text {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 14px;
+    line-height: 1.4;
+    color: #2e7d32;
+    background: rgba(76, 175, 80, 0.1);
+    padding: 16px;
+    border-radius: 8px;
+    white-space: pre-wrap;
+    overflow-x: auto;
+}
+
+/* Collection Item Cards */
+.collection-item-card {
+    transition: all 0.3s ease;
+    height: 100%;
+}
+
+.collection-item-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+    .form-header {
+        margin: -8px -8px 16px -8px;
+        padding: 12px;
+    }
+    
+    .collection-form,
+    .import-form {
+        max-width: none;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .create-btn,
+    .import-btn {
+        width: 100%;
+    }
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 1rem;
+}
+.card img {
+  width: 100%;
+  height: auto;
+}
+</style>
