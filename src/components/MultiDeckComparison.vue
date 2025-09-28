@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import draggable from 'vuedraggable'
 import { useDeckData } from '@/composables/useDeckData'
 import { buildComparisonMatrix, buildShoppingList } from '@/utils/deckComparisonUtils'
 import type { Deck, MatrixRow } from '@/utils/types'
 import { useCsvExport, type CsvColumn } from '../composables/useCsvExport'
+import axios from 'axios'
+
+const base_url = "http://localhost:80";
 
 // 1️⃣ Grab selected decks and their cards
 const {
@@ -17,6 +20,10 @@ const {
 const deckData = useDeckData()
 const selectedDecks = deckData.selectedDecks
 const moveDeckImmutable = deckData.moveDeckImmutable
+const uniqueCardsInComparison = ref<string[]>([])
+const listOfCollections = ref([])
+const collectionsForInventory = ref<number[]>([1]) // Default collection ID
+const normalizedInventory = ref<Record<string, any>>({}) // Inventory data
 
 // 2️⃣ Define type groups and selection
 const typeHierarchy = [
@@ -91,13 +98,81 @@ async function handleSelectionChange(newSelection: Deck[]) {
   // 2️⃣ reset all card‐lists
   resetCardsForSelectedDecks(newSelection)
 
-  // 3️⃣ fetch each deck's cards
+  // 3️⃣ fetch each deck's cards and WAIT for them
   await nextTick()
-  newSelection.forEach((deck, i) => {
+
+ // Create promises for all deck card fetches
+  const cardFetchPromises = newSelection.map((deck, i) => {
     if (!cardsInSelectedDeck.value[i]?.length) {
-      getCardsForDeckByIndex(deck.deck_id, i)
+      return getCardsForDeckByIndex(deck.deck_id, i)
     }
+    return Promise.resolve() // If cards already loaded
   })
+
+  // 🔥 WAIT for ALL cards to be loaded
+  await Promise.all(cardFetchPromises)
+  
+  // 🔥 Add another nextTick to ensure reactive updates are complete
+  await nextTick()
+  const allDeckCards = decks.value.flatMap(deck => deck.cards)
+  const uniqueNames = Array.from(new Set(allDeckCards.map(card => card.name.trim())))
+
+  console.log(JSON.stringify(uniqueNames));
+  //uniqueCardsInComparison.value = uniqueNames
+
+  const response = await axios.post(`${base_url}/api/inventory/lookup-normalized`, {
+    card_names: uniqueNames,
+    collection_ids: collectionsForInventory.value
+  })
+
+  normalizedInventory.value = Object.fromEntries(
+  response.data.map((entry: { name: any }) => [entry.name, entry])
+)
+
+console.log('🔍 Raw API response:', response.data)
+
+// Handle both array and object responses
+let inventoryEntries
+if (Array.isArray(response.data)) {
+  // If it's an array (as the backend should return)
+  inventoryEntries = response.data
+} else {
+  // If it's an object with numeric keys (what you're seeing)
+  inventoryEntries = Object.values(response.data)
+}
+
+normalizedInventory.value = Object.fromEntries(
+  inventoryEntries.map((entry: any) => [entry.name, entry])
+)
+
+console.log('📦 Processed inventory:', normalizedInventory.value)
+}
+
+function getInventoryCount(card: any): number {
+  const name = card.name.trim()
+  const inventory = normalizedInventory.value[name]
+  
+  if (!inventory) {
+    // Try fuzzy matching for debugging
+    const availableNames = Object.keys(normalizedInventory.value)
+    const similarNames = availableNames.filter(n => 
+      n.toLowerCase().includes(name.toLowerCase()) || 
+      name.toLowerCase().includes(n.toLowerCase())
+    )
+    
+    if (similarNames.length > 0) {
+      console.warn(`🔍 "${name}" not found, but similar: ${similarNames.join(', ')}`)
+    } else {
+      console.warn(`❌ "${name}" not found in inventory at all`)
+    }
+  }
+  
+  return inventory?.total_count || 0
+}
+function getDelta(card: any): number {
+  const lockedTotal = getLockedTotal(card)
+  const inventory = getInventoryCount(card)
+  return Math.max(lockedTotal - inventory, 0)
 }
 
 // DRAG: reorder decks + their card groups
@@ -193,6 +268,20 @@ function getCountColor(count: number): string {
   if (count >= 2) return 'warning'
   return 'info'
 }
+
+const fetchCollections = async () => {
+    try {
+        const response = await axios.get(`${base_url}/collections`)
+        listOfCollections.value = response.data
+    } catch (error) {
+        console.error('Error fetching collections:', error)
+    }
+}
+
+onMounted(() => {
+   fetchCollections()
+
+})
 </script>
 
 <template>
@@ -242,6 +331,17 @@ function getCountColor(count: number): string {
                 </v-chip>
               </template>
             </v-combobox>
+            <v-select
+              v-model="collectionsForInventory"
+              :items="listOfCollections"
+              item-title="name"
+              item-value="id"
+              label="Reference Collections"
+              multiple
+              chips
+              clearable
+              variant="outlined"
+            />
 
             <!-- Type Filters -->
             <v-expansion-panels class="mb-4" variant="accordion">
@@ -264,7 +364,7 @@ function getCountColor(count: number): string {
                     <v-chip-group 
                       v-model="selectedTypes" 
                       multiple
-                      @update:model-value="(newValue) => selectedTypes = newValue"
+                      @update:model-value="(newValue: string[]) => selectedTypes = newValue"
                     >
                       <v-chip
                         v-for="type in typeHierarchy"
@@ -416,7 +516,31 @@ function getCountColor(count: number): string {
                     <span v-else class="no-card">-</span>
                   </div>
                 </div>
+                <!-- Inventory Column -->
+                <div class="inventory-column">
+                  <v-chip
+                    v-if="getInventoryCount(card) > 0"
+                    color="info"
+                    size="small"
+                    variant="outlined"
+                  >
+                    {{ getInventoryCount(card) }}
+                  </v-chip>
+                  <span v-else class="no-inventory">-</span>
+                </div>
 
+                <!-- Delta Column -->
+                <div class="delta-column">
+                  <v-chip
+                    v-if="getDelta(card) > 0"
+                    color="error"
+                    size="small"
+                    variant="elevated"
+                  >
+                    {{ getDelta(card) }}
+                  </v-chip>
+                  <span v-else class="no-delta">✓</span>
+                </div>
                 <div class="total-column">
                   <v-chip
                     v-if="getLockedTotal(card) > 0"

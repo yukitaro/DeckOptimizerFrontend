@@ -225,7 +225,7 @@ const activeColors = computed(() =>
     }).filter(Boolean)
 );
     
-    const colorFilterParam = computed(() => activeColors.value.join(','));
+const colorFilterParam = computed(() => activeColors.value.join(','));
 
     // Color counts for current results (for badges and visual indicators)
 const colorCounts = computed(() => {

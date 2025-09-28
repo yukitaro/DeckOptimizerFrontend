@@ -1,16 +1,38 @@
-<script setup>
-import { reactive, ref, onMounted } from 'vue'
+<script setup lang="ts">
+import { computed, nextTick, onMounted, reactive, ref, watchEffect } from 'vue'
 import axios from 'axios'
 
 const base_url = "http://localhost:80";
 
 const csvFile = ref(null)
 const listOfCollections = ref([])
-const selectedCollection = ref(null)
+const selectedCollection = ref(1)
 const selectedMode = ref('merge')
 const collections = ref([])
 const importSummary = ref(null)
 const isImporting = ref(false)
+const cardsInCollection = ref([])
+const currentPage = ref(1)
+const hasMore = ref(true)
+const isLoading = ref(false)
+const shouldExcludeMultiColor = ref(false)
+
+const search = ref('')
+const sortKey = ref('name')
+const activeColors = ref<string[]>([])
+const groupByName = ref(false)
+
+function onColorFilterChange(newColors: string[]) {
+  activeColors.value = newColors
+  refreshFilteredCards()
+}
+
+function excludeMultiColor() {
+    shouldExcludeMultiColor.value = !shouldExcludeMultiColor.value
+    refreshFilteredCards()
+}
+
+const globalColorCounts = ref<Record<string, number>>({ W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 })
 
 const tab = ref('Create Collection')
 const tabLabels = ['Create Collection', 'Add to Collections', 'View Collections'];
@@ -19,6 +41,8 @@ const newCollectionFields = reactive({
     name: '',
     description: ''
 })
+
+const scrollAnchor = ref(null)
 
 const modeOptions = [
     { title: 'Merge with Existing', value: 'merge', subtitle: 'Add to existing card counts' },
@@ -72,6 +96,33 @@ const createCollection = async () => {
     }
 }
 
+const viewCollection = async (collectionId) => {
+    selectedCollection.value = collectionId
+    cardsInCollection.value = []
+    currentPage.value = 1
+    hasMore.value = true
+
+    try {
+        const response = await axios.get(`${base_url}/api/collections/${collectionId}/cards`)
+        // Handle paginated response - extract the data array
+        if (response.data && response.data.data && Array.isArray(response.data.data)) {
+            cardsInCollection.value = response.data.data
+        } else if (Array.isArray(response.data)) {
+            // Fallback if it's already an array
+            cardsInCollection.value = response.data
+        } else {
+            console.error('Unexpected response structure:', response.data)
+            cardsInCollection.value = []
+        }
+        
+        console.log('Cards loaded:', cardsInCollection.value.length)
+        computeGlobalColorCounts(cardsInCollection.value)
+        tab.value = 'View Collections'
+    } catch (error) {
+        console.error('Error fetching collection cards:', error)
+    }
+}
+
 const fetchCollections = async () => {
     try {
         const response = await axios.get(`${base_url}/collections`)
@@ -81,7 +132,167 @@ const fetchCollections = async () => {
     }
 }
 
-onMounted(fetchCollections)
+onMounted(() => {
+    fetchCollections()
+
+    const scrollContainer = document.querySelector('.cards-section') // or whatever wraps the scroll
+
+    watchEffect(() => {
+  if (cardsInCollection.value.length > 0 && scrollAnchor.value) {
+    nextTick(() => {
+      const observer = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && hasMore.value && !isLoading.value) {
+          console.log('Scroll anchor intersected')
+          loadMoreCards()
+        }
+      }, {
+        root: null, // use viewport
+        threshold: 0.5
+      })
+
+      observer.observe(scrollAnchor.value)
+    })
+  }
+})
+})
+
+const filteredAndSortedCards = computed(() => {
+  let cards = cardsInCollection.value || []
+
+  // 🔍 Search filter
+  if (search.value) {
+    cards = cards.filter(card => {
+      const name = card.card_from_set?.name || ''
+      return name.toLowerCase().includes(search.value.toLowerCase())
+    })
+  }
+
+  // 🎨 Color filter
+  if (activeColors.value.length > 0) {
+    cards = cards.filter(card => {
+    const raw = card.card_from_set?.colorIdentities || ''
+    const codes = typeof raw === 'string'
+      ? raw.split(',').map(c => c.trim())
+      : Array.isArray(raw)
+        ? raw
+        : []
+
+    const isSubset = codes.every(code => activeColors.value.includes(code))
+
+    return isSubset
+  })
+
+    console.log('Color identities:', cards.map(c => c.card_from_set?.colorIdentities))
+  }
+
+  // 🔀 Sorting
+  return cards.sort((a, b) => {
+    if (sortKey.value === 'name') {
+      const nameA = a.card_from_set?.name || ''
+      const nameB = b.card_from_set?.name || ''
+      return nameA.localeCompare(nameB)
+    }
+    if (sortKey.value === 'count') return b.card_count - a.card_count
+    if (sortKey.value === 'condition') {
+      const condA = a.condition || ''
+      const condB = b.condition || ''
+      return condA.localeCompare(condB)
+    }
+    return 0
+  })
+})
+
+const groupedCards = computed(() => {
+  if (!groupByName.value) return filteredAndSortedCards.value
+
+  const map = new Map<string, any>()
+
+  for (const card of filteredAndSortedCards.value) {
+    const name = card.card_from_set?.name || 'Unknown'
+
+    if (!map.has(name)) {
+      map.set(name, {
+        ...card,
+        card_count: card.card_count,
+        variants: [card]
+      })
+    } else {
+      const existing = map.get(name)
+      existing.card_count += card.card_count
+      existing.variants.push(card)
+    }
+  }
+
+  return Array.from(map.values())
+})
+
+
+async function refreshFilteredCards() {
+  const response = await axios.get(`${base_url}/api/collections/${selectedCollection.value}/cards`, {
+    params: {
+      page: 1,
+      colorFilters: activeColors.value.join(','),
+      sort: sortKey.value
+      // include other filters like search, rarity, etc.
+    }
+  })
+  cardsInCollection.value = response.data.data
+  currentPage.value = 2
+  hasMore.value = response.data.meta.current_page < response.data.meta.last_page
+}
+
+const loadMoreCards = async () => {
+  if (!hasMore.value || isLoading.value) return
+
+  isLoading.value = true
+  try {
+    currentPage.value++
+    const response = await axios.get(`${base_url}/api/collections/${selectedCollection.value}/cards?page=${currentPage.value}`, {
+        params: {
+            colorFilters: activeColors.value.join(','),
+            sort: sortKey.value
+        }
+    })
+    const newCards = response.data.data || []
+
+    const cardMap = new Map(cardsInCollection.value.map(card => [card.id, card]))
+    newCards.forEach(card => cardMap.set(card.id, card))
+    cardsInCollection.value = Array.from(cardMap.values())
+    //cardsInCollection.value.push(...newCards)
+
+    const meta = response.data.meta
+    hasMore.value = meta.current_page < meta.last_page
+  } catch (error) {
+    console.error('Error loading cards:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function computeGlobalColorCounts(cards: any[]) {
+  const counts: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }
+
+  for (const card of cards) {
+    const raw = card.card_from_set?.colorIdentities || ''
+    const codes = typeof raw === 'string'
+      ? raw.split(',').map(c => c.trim())
+      : Array.isArray(raw)
+        ? raw
+        : []
+
+    if (codes.length === 0) {
+      counts['C']++
+    } else {
+      for (const code of codes) {
+        if (counts[code] !== undefined) {
+          counts[code]++
+        }
+      }
+    }
+  }
+
+  globalColorCounts.value = counts
+}
 </script>
 
 <template>
@@ -296,62 +507,178 @@ onMounted(fetchCollections)
                         </p>
                     </div>
 
-                    <v-row v-if="listOfCollections.length > 0">
-                        <v-col 
-                            v-for="collection in listOfCollections" 
-                            :key="collection.id"
-                            cols="12" 
-                            md="6" 
-                            lg="4"
+                    <!-- Collection List (only show if no cards are being viewed) -->
+                    <div v-if="cardsInCollection.length === 0">
+                        <v-row v-if="listOfCollections.length > 0">
+                            <v-col 
+                                v-for="collection in listOfCollections" 
+                                :key="collection.id"
+                                cols="12" 
+                                md="6" 
+                                lg="4"
+                            >
+                                <v-card class="collection-item-card" variant="outlined">
+                                    <v-card-text class="pa-4">
+                                        <h3 class="text-h6 font-weight-bold mb-2">
+                                            {{ collection.name }}
+                                        </h3>
+                                        <p v-if="collection.description" class="text-body-2 text-medium-emphasis">
+                                            {{ collection.description }}
+                                        </p>
+                                        <p v-else class="text-body-2 text-disabled">
+                                            No description provided
+                                        </p>
+                                    </v-card-text>
+                                    <v-card-actions class="pa-4 pt-0">
+                                        <v-btn 
+                                            variant="outlined" 
+                                            size="small"
+                                            prepend-icon="mdi-eye"
+                                            @click="viewCollection(collection.id)"
+                                        >
+                                            View Cards
+                                        </v-btn>
+                                        <v-spacer></v-spacer>
+                                        <v-btn 
+                                            variant="text" 
+                                            size="small" 
+                                            icon="mdi-dots-vertical"
+                                        ></v-btn>
+                                    </v-card-actions>
+                                </v-card>
+                            </v-col>
+                        </v-row>
+
+                        <v-empty-state
+                            v-else
+                            icon="mdi-folder-plus"
+                            title="No Collections Yet"
+                            text="Create your first collection to start organizing your Magic cards"
                         >
-                            <v-card class="collection-item-card" variant="outlined">
-                                <v-card-text class="pa-4">
-                                    <h3 class="text-h6 font-weight-bold mb-2">
-                                        {{ collection.name }}
-                                    </h3>
-                                    <p v-if="collection.description" class="text-body-2 text-medium-emphasis">
-                                        {{ collection.description }}
+                            <template v-slot:actions>
+                                <v-btn
+                                    @click="tab = 'Create Collection'"
+                                    color="primary"
+                                    variant="elevated"
+                                    prepend-icon="mdi-plus"
+                                >
+                                    Create Collection
+                                </v-btn>
+                            </template>
+                        </v-empty-state>
+                    </div>
+
+                    <!-- Card Display Section (show when cards are loaded) -->
+                    <div v-if="cardsInCollection.length > 0" class="cards-section">
+                        <!-- Back Button -->
+                        <v-btn 
+                            @click="cardsInCollection = []"
+                            variant="outlined"
+                            prepend-icon="mdi-arrow-left"
+                            class="mb-4"
+                        >
+                            Back to Collections
+                        </v-btn>
+
+                        <!-- Search and Sort Controls -->
+                        <v-card class="mb-4" variant="outlined">
+                            <v-card-text class="pa-4">
+                                <v-row>
+                                    <v-col cols="12" md="8">
+                                        <v-text-field
+                                            v-model="search"
+                                            label="Search cards..."
+                                            variant="outlined"
+                                            density="comfortable"
+                                            prepend-inner-icon="mdi-magnify"
+                                            clearable
+                                        ></v-text-field>
+                                    </v-col>
+                                    <v-col cols="12" md="4">
+                                        <v-select
+                                            v-model="sortKey"
+                                            :items="[
+                                                { title: 'Name', value: 'name' },
+                                                { title: 'Count', value: 'count' },
+                                                { title: 'Condition', value: 'condition' }
+                                            ]"
+                                            label="Sort by"
+                                            variant="outlined"
+                                            density="comfortable"
+                                        ></v-select>
+                                    </v-col>
+                                </v-row>
+                            <v-row>
+                            <!-- Color Filters -->
+                            <v-col cols="12" md="6">
+                                <h3 class="text-h6 mb-3">Colors</h3>
+                                <div class="color-filters">
+                                    <ColorFilterChips
+                                    :filteredCardData="filteredAndSortedCards"
+                                    :activeColors="activeColors"
+                                    :globalColorCounts="globalColorCounts"
+                                    @update:activeColors="onColorFilterChange"
+                                    />
+                                </div>
+                            </v-col>
+                            <v-col between>
+                                <v-row>
+                                    <v-col class="pa-2 ma-2">
+                                        <v-checkbox @click="excludeMultiColor">Exclude Multicolor</v-checkbox>
+                                    </v-col>
+                                    <v-col class="pa-2 ma-2">
+                                        <v-switch v-model="groupByName" label="Group by Card Name" color="primary" class="mt-4" />
+                                    </v-col>
+                                </v-row>
+                            </v-col>
+                            <!-- Rarity Filters -->
+                            <v-col cols="12" md="6">
+                                <h3 class="text-h6 mb-3">Rarity</h3>
+                                <div class="rarity-filters">
+                                <v-chip-group v-model="selectedRarity" multiple>
+                                    <v-chip  v-for="rarity in rarities" :key="rarity.value" :value="rarity.value" :color="rarity.color" variant="outlined" filter>
+                                    <v-icon :icon="rarity.icon" start></v-icon>
+                                    {{ rarity.label }}
+                                    </v-chip>
+                                </v-chip-group>
+                                </div>
+                            </v-col>
+                            </v-row>                                
+                            </v-card-text>
+                        </v-card>
+
+                        <!-- Cards Grid -->
+                        <div class="card-grid">
+                            <v-card v-for="card in groupedCards" 
+                                :key="card.id" class="card-item" variant="outlined">
+                                <v-img 
+                                    :src="card.card_from_set?.image_url || 'https://via.placeholder.com/200x280'" 
+                                    :alt="card.card_from_set?.name || 'Card'"
+                                    aspect-ratio="5/7"
+                                ></v-img>
+                                <v-card-text class="pa-2">
+                                    <p class="text-body-2 font-weight-bold">
+                                        {{ card.card_from_set?.name || 'Unknown Card' }} 
+                                        <v-chip size="x-small" color="primary">{{ card.card_count }}</v-chip>
                                     </p>
-                                    <p v-else class="text-body-2 text-disabled">
-                                        No description provided
+                                    <p class="text-caption text-medium-emphasis">
+                                        {{ card.condition || 'Unknown condition' }}
+                                    </p>
+                                    <p v-if="card.is_foil" class="text-caption text-warning">
+                                        ✨ Foil
                                     </p>
                                 </v-card-text>
-                                <v-card-actions class="pa-4 pt-0">
-                                    <v-btn 
-                                        variant="outlined" 
-                                        size="small"
-                                        prepend-icon="mdi-eye"
-                                    >
-                                        View Cards
-                                    </v-btn>
-                                    <v-spacer></v-spacer>
-                                    <v-btn 
-                                        variant="text" 
-                                        size="small" 
-                                        icon="mdi-dots-vertical"
-                                    ></v-btn>
-                                </v-card-actions>
                             </v-card>
-                        </v-col>
-                    </v-row>
-
-                    <v-empty-state
-                        v-else
-                        icon="mdi-folder-plus"
-                        title="No Collections Yet"
-                        text="Create your first collection to start organizing your Magic cards"
-                    >
-                        <template v-slot:actions>
-                            <v-btn
-                                @click="tab = 'Create Collection'"
-                                color="primary"
-                                variant="elevated"
-                                prepend-icon="mdi-plus"
-                            >
-                                Create Collection
-                            </v-btn>
-                        </template>
-                    </v-empty-state>
+                        </div>
+                        <div ref="scrollAnchor" style="height: 20px; background: red;"></div>
+                        <!-- No Results -->
+                        <v-empty-state
+                            v-if="filteredAndSortedCards.length === 0"
+                            icon="mdi-magnify"
+                            title="No Cards Found"
+                            text="Try adjusting your search terms"
+                        ></v-empty-state>
+                    </div>
                 </v-card-text>
             </v-card>
         </v-window-item>
@@ -488,11 +815,17 @@ onMounted(fetchCollections)
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 1rem;
 }
+
 .card img {
   width: 100%;
   height: auto;
+}
+.card-item {
+  flex: 1 1 auto;
+  min-width: 200px;
+  max-width: 300px;
 }
 </style>
