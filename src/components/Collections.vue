@@ -8,7 +8,6 @@ const csvFile = ref(null)
 const listOfCollections = ref([])
 const selectedCollection = ref(1)
 const selectedMode = ref('merge')
-const collections = ref([])
 const importSummary = ref(null)
 const isImporting = ref(false)
 const cardsInCollection = ref([])
@@ -17,7 +16,7 @@ const hasMore = ref(true)
 const isLoading = ref(false)
 const shouldExcludeMultiColor = ref(false)
 
-const search = ref('')
+const searchTerm = ref('')
 const sortKey = ref('name')
 const activeColors = ref<string[]>([])
 const groupByName = ref(false)
@@ -49,10 +48,6 @@ const modeOptions = [
     { title: 'Set Count', value: 'set', subtitle: 'Override existing card counts' },
     { title: 'Create New', value: 'new', subtitle: 'Create new entries only' }
 ]
-
-const handleFileUpload = (event) => {
-    csvFile.value = event.target.files[0]
-}
 
 const submitImport = async () => {
     if (!csvFile.value || !selectedCollection.value) return
@@ -103,7 +98,23 @@ const viewCollection = async (collectionId) => {
     hasMore.value = true
 
     try {
-        const response = await axios.get(`${base_url}/api/collections/${collectionId}/cards`)
+        const response = await axios.get(`${base_url}/api/collections/${collectionId}/cards`, {
+            params: {
+                colorFilters: activeColors.value.join(','),
+                search: searchTerm.value,
+                //sets: activeSets.value.join(','),
+                //rarities: activeRarities.value.join(','),
+                sort: sortKey.value
+            }
+        })
+
+        const meta = response.data.meta
+        hasMore.value = meta.current_page < meta.last_page
+
+        if (meta.is_complete) {
+            hasMore.value = false
+        }
+
         // Handle paginated response - extract the data array
         if (response.data && response.data.data && Array.isArray(response.data.data)) {
             cardsInCollection.value = response.data.data
@@ -160,10 +171,10 @@ const filteredAndSortedCards = computed(() => {
   let cards = cardsInCollection.value || []
 
   // 🔍 Search filter
-  if (search.value) {
+  if (searchTerm.value) {
     cards = cards.filter(card => {
       const name = card.card_from_set?.name || ''
-      return name.toLowerCase().includes(search.value.toLowerCase())
+      return name.toLowerCase().includes(searchTerm.value.toLowerCase())
     })
   }
 
@@ -247,9 +258,11 @@ const loadMoreCards = async () => {
   isLoading.value = true
   try {
     currentPage.value++
-    const response = await axios.get(`${base_url}/api/collections/${selectedCollection.value}/cards?page=${currentPage.value}`, {
+    const response = await axios.get(`${base_url}/api/collections/${selectedCollection.value}/cards`, {
         params: {
+            page: currentPage.value,
             colorFilters: activeColors.value.join(','),
+            search: searchTerm.value,
             sort: sortKey.value
         }
     })
@@ -586,7 +599,7 @@ function computeGlobalColorCounts(cards: any[]) {
                                 <v-row>
                                     <v-col cols="12" md="8">
                                         <v-text-field
-                                            v-model="search"
+                                            v-model="searchTerm"
                                             label="Search cards..."
                                             variant="outlined"
                                             density="comfortable"
@@ -662,7 +675,7 @@ function computeGlobalColorCounts(cards: any[]) {
                                         <v-chip size="x-small" color="primary">{{ card.card_count }}</v-chip>
                                     </p>
                                     <p class="text-caption text-medium-emphasis">
-                                        {{ card.condition || 'Unknown condition' }}
+                                        {{ card.card_from_set?.set_name || 'Unknown Set' }}
                                     </p>
                                     <p v-if="card.is_foil" class="text-caption text-warning">
                                         ✨ Foil

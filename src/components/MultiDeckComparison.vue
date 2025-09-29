@@ -458,7 +458,14 @@ onMounted(() => {
                 </div>
               </template>
             </draggable>
-
+            <div class="inventory-column">
+              <v-icon icon="mdi-package-variant" color="info" size="16" class="mr-1"></v-icon>
+              Inventory
+            </div>
+            <div class="delta-column">
+              <v-icon icon="mdi-delta" color="warning" size="16" class="mr-1"></v-icon>
+              Need
+            </div>
             <div class="total-column">
               <v-icon icon="mdi-lock" color="success" size="16" class="mr-1"></v-icon>
               Locked Total
@@ -831,6 +838,34 @@ onMounted(() => {
   background: rgba(0, 0, 0, 0.02);
   border-radius: 8px;
   max-width: 350px;
+}
+
+.inventory-column,
+.delta-column {
+  width: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  flex-shrink: 0;
+  padding: 0 8px;
+  text-align: center;
+}
+
+.inventory-column {
+  border-left: 2px solid rgba(33, 150, 243, 0.2);
+  background: rgba(33, 150, 243, 0.05);
+}
+
+.delta-column {
+  border-left: 2px solid rgba(255, 152, 0, 0.2);
+  background: rgba(255, 152, 0, 0.05);
+}
+
+.no-inventory,
+.no-delta {
+  color: rgba(0, 0, 0, 0.38);
+  font-style: italic;
 }
 
 /* Responsive Design */
