@@ -247,21 +247,6 @@ const colorCounts = computed(() => {
   return counts
 })
 
-
-function convertColorCodeToName(colorCode: string): string | null {
-    switch (colorCode) {
-        case 'W': return 'plains'
-        case 'U': return 'islands'
-        case 'B': return 'swamps'
-        case 'R': return 'mountains'
-        case 'G': return 'forests'
-        case '':
-        case null:
-        case undefined: return 'colorless'
-        default: return null
-    }
-}
-
 function hasColorInResults(colorName: string): boolean {
     return colorCounts.value[colorName as keyof typeof colorCounts.value] > 0
 }

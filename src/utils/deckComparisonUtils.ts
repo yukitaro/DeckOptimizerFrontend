@@ -1,6 +1,7 @@
 // src/utils/deckComparisonUtils.ts
 import type { Deck, MatrixRow, Card } from './types'
 
+const base_url = "http://localhost:80";
 /**
  * Builds a matrix where each row is a unique card,
  * and `counts[col]` is how many of that card each deck has.
@@ -9,7 +10,13 @@ export function buildComparisonMatrix(decks: Deck[]): MatrixRow[] {
   const map = new Map<number, MatrixRow>()
 
   decks.forEach((deck, colIdx) => {
-    deck.cards.forEach((card: Card) => {
+    deck.cards.forEach((card: Card, i) => {
+    if (!card || typeof card.id !== 'number') {
+      console.error(`Null or invalid card at deck ${deck.deck_id}, index ${i}:`, card)
+      debugger
+      return
+    }
+
       if (!map.has(card.id)) {
         map.set(card.id, {
           id: card.id,
@@ -37,7 +44,7 @@ export function buildComparisonMatrix(decks: Deck[]): MatrixRow[] {
 /**
  * Aggregates total card counts across only the locked decks.
  */
-export function buildShoppingList(decks: Deck[]): Card[] {
+export async function buildShoppingList(decks: Deck[]): Promise<Card[]> {
   const locked = decks.filter(d => d.locked)
   const map = new Map<number, Card & { total: number }>()
 
@@ -52,5 +59,24 @@ export function buildShoppingList(decks: Deck[]): Card[] {
     })
   })
 
-  return Array.from(map.values())
+  const shoppingList = Array.from(map.values())
+  const normalizedIds = shoppingList.map(card => card.id)
+
+  await fetchPricesForShoppingList(normalizedIds)
+
+  return shoppingList
+}
+
+
+async function fetchPricesForShoppingList(normalizedIds: number[]): Promise<void> {
+  const response = await fetch(`${base_url}/api/fetch-card-prices`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ card_data_normalized_ids: normalizedIds }),
+  })
+
+  const prices = await response.json()
+
+  // You can now attach prices to cards, cache them, or pass to CSV export
+  console.log('Fetched prices:', prices)
 }

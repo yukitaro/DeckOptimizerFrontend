@@ -3,7 +3,7 @@ import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import draggable from 'vuedraggable'
 import { useDeckData } from '@/composables/useDeckData'
 import { buildComparisonMatrix, buildShoppingList } from '@/utils/deckComparisonUtils'
-import type { Deck, MatrixRow } from '@/utils/types'
+import type { Deck, MatrixRow, ShoppingListRow } from '@/utils/types'
 import { useCsvExport, type CsvColumn } from '../composables/useCsvExport'
 import axios from 'axios'
 
@@ -160,11 +160,11 @@ function getInventoryCount(card: any): number {
       name.toLowerCase().includes(n.toLowerCase())
     )
     
-    if (similarNames.length > 0) {
+/*     if (similarNames.length > 0) {
       console.warn(`🔍 "${name}" not found, but similar: ${similarNames.join(', ')}`)
     } else {
       console.warn(`❌ "${name}" not found in inventory at all`)
-    }
+    } */
   }
   
   return inventory?.total_count || 0
@@ -228,25 +228,47 @@ function startResize(index: number, e: MouseEvent) {
 // CSV Export composable
 const { downloadCsv } = useCsvExport<any>()
 
-function exportToCSV() {
+async function exportToCSV() {
   if (lockedDeckIndexes.value.length === 0) {
     return alert('No data to export')
   }
 
   const lockedDecks = lockedDeckIndexes.value.map(i => decks.value[i])
-  const shoppingListForExport = buildShoppingList(lockedDecks)
+  const shoppingListForExport = await buildShoppingList(lockedDecks)
 
-  // Define columns for CSV export
-  const columns: CsvColumn<any>[] = [
-    { key: 'name', label: 'Name' },
-    { key: 'official_set_name', label: 'Set' },
-    { key: 'rarity', label: 'Rarity' },
-    { key: 'mana_cost', label: 'Mana Cost' },
-    { key: 'type_line', label: 'Type' },
-    { key: 'oracle_text', label: 'Text' }
-  ]
+  if (shoppingListForExport.length === 0) {
+    return alert('No cards found in locked decks.')
+  }
+
+  // Shape rows for export
+  const rows: ShoppingListRow[] = shoppingListForExport.map(card => {
+    const inventoryEntry = normalizedInventory.value[card.name]
+    const inventoryCount = inventoryEntry?.total_count ?? 0
+    const need = Math.max(card.total - inventoryCount, 0)
+
+    return {
+      name: card.name,
+      total_locked: card.total,
+      inventory: inventoryCount,
+      need,
+      mana_cost: card.mana_cost || '',
+      type: card.type || '',
+      official_set_name: card.official_set_name || ''
+    }
+  })
   
-  downloadCsv(matrix.value, columns, 'mtg_deck_comparison_export.csv')
+    // Define columns that actually exist on ShoppingListRow
+  const columns: CsvColumn<ShoppingListRow>[] = [
+    { key: 'name',          label: 'Name' },
+    { key: 'total_locked',  label: 'Locked Total' },
+    { key: 'inventory',     label: 'Inventory' },
+    { key: 'need',          label: 'Need' },
+    { key: 'mana_cost',     label: 'Mana Cost' },
+    { key: 'type',          label: 'Type' },
+    { key: 'official_set_name', label: 'Set' }
+  ]
+
+  downloadCsv(rows, columns, 'shopping_list.csv')
 }
 
 // Helper function to get type-specific icons
@@ -291,11 +313,19 @@ onMounted(() => {
       <v-card class="header-card">
         <v-card-text class="pa-6">
           <div class="header-content">
-            <h2 class="text-h4 font-weight-bold text-primary mb-4">
-              <v-icon icon="mdi-compare" class="mr-3"></v-icon>
-              Multi-Deck Comparison
-            </h2>
-            
+            <v-row justify="space-between">
+              <v-col align-self="start">
+                <h2 class="text-h4 font-weight-bold text-primary mb-4">
+                  <v-icon icon="mdi-compare" class="mr-3"></v-icon>
+                  Multi-Deck Comparison
+                </h2>
+              </v-col>
+              <v-col align-self="end">
+                <v-btn @click="exportToCSV" color="secondary" variant="outlined" size="large" prepend-icon="mdi-download">
+                  Export CSV
+                </v-btn>
+              </v-col>              
+            </v-row>            
             <!-- Deck Selection -->
             <v-combobox
               :items="listOfStoredDecks"

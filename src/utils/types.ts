@@ -39,3 +39,13 @@ export interface MatrixRow {
   deckCounts: Record<string, number>
   mana_cost?: string
 }
+
+export interface ShoppingListRow {
+  name: string
+  total_locked: number
+  inventory: number
+  need: number
+  mana_cost?: string
+  type: string
+  official_set_name?: string
+}

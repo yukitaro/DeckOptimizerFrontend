@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watchEffect } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, toRaw, watch, watchEffect } from 'vue'
 import axios from 'axios'
 
 const base_url = "http://localhost:80";
@@ -18,6 +18,7 @@ const shouldExcludeMultiColor = ref(false)
 
 const searchTerm = ref('')
 const sortKey = ref('name')
+const sortDirection = ref('desc')
 const activeColors = ref<string[]>([])
 const groupByName = ref(false)
 
@@ -96,16 +97,9 @@ const viewCollection = async (collectionId) => {
     cardsInCollection.value = []
     currentPage.value = 1
     hasMore.value = true
-
     try {
         const response = await axios.get(`${base_url}/api/collections/${collectionId}/cards`, {
-            params: {
-                colorFilters: activeColors.value.join(','),
-                search: searchTerm.value,
-                //sets: activeSets.value.join(','),
-                //rarities: activeRarities.value.join(','),
-                sort: sortKey.value
-            }
+            params: queryParams.value
         })
 
         const meta = response.data.meta
@@ -146,25 +140,23 @@ const fetchCollections = async () => {
 onMounted(() => {
     fetchCollections()
 
-    const scrollContainer = document.querySelector('.cards-section') // or whatever wraps the scroll
-
     watchEffect(() => {
-  if (cardsInCollection.value.length > 0 && scrollAnchor.value) {
-    nextTick(() => {
-      const observer = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && hasMore.value && !isLoading.value) {
-          console.log('Scroll anchor intersected')
-          loadMoreCards()
-        }
-      }, {
-        root: null, // use viewport
-        threshold: 0.5
-      })
+        if (cardsInCollection.value.length > 0 && scrollAnchor.value) {
+            nextTick(() => {
+            const observer = new IntersectionObserver((entries) => {
+                if (entries[0].isIntersecting && hasMore.value && !isLoading.value) {
+                console.log('Scroll anchor intersected')
+                loadMoreCards()
+                }
+            }, {
+                root: null, // use viewport
+                threshold: 0.5
+            })
 
-      observer.observe(scrollAnchor.value)
-    })
-  }
-})
+            observer.observe(scrollAnchor.value)
+            })
+        }}
+    )
 })
 
 const filteredAndSortedCards = computed(() => {
@@ -181,17 +173,17 @@ const filteredAndSortedCards = computed(() => {
   // 🎨 Color filter
   if (activeColors.value.length > 0) {
     cards = cards.filter(card => {
-    const raw = card.card_from_set?.colorIdentities || ''
-    const codes = typeof raw === 'string'
-      ? raw.split(',').map(c => c.trim())
-      : Array.isArray(raw)
-        ? raw
-        : []
+        const raw = card.card_from_set?.colorIdentities || ''
+        const codes = typeof raw === 'string'
+        ? raw.split(',').map(c => c.trim())
+        : Array.isArray(raw)
+            ? raw
+            : []
 
-    const isSubset = codes.every(code => activeColors.value.includes(code))
+        const isSubset = codes.every(code => activeColors.value.includes(code))
 
-    return isSubset
-  })
+        return isSubset
+    })
 
     console.log('Color identities:', cards.map(c => c.card_from_set?.colorIdentities))
   }
@@ -237,18 +229,38 @@ const groupedCards = computed(() => {
   return Array.from(map.values())
 })
 
+const queryParams = computed(() => ({
+    sort: {
+        key: sortKey.value,
+        direction: sortDirection.value
+    },
+    filters: {
+        colors: activeColors.value,
+        excludeMultiColor: shouldExcludeMultiColor.value,
+        search: searchTerm.value,
+        //sets: activeSets.value,
+        //rarities: activeRarities.value
+    },
+    page: currentPage.value
+}))
+
+watch(queryParams, async () => {
+    await refreshFilteredCards()
+    //cardsInCollection.value = response.
+})
 
 async function refreshFilteredCards() {
   const response = await axios.get(`${base_url}/api/collections/${selectedCollection.value}/cards`, {
-    params: {
+    params: queryParams.value
+/*     params: {
       page: 1,
       colorFilters: activeColors.value.join(','),
       sort: sortKey.value
       // include other filters like search, rarity, etc.
-    }
+    } */
   })
   cardsInCollection.value = response.data.data
-  currentPage.value = 2
+  //currentPage.value = 2
   hasMore.value = response.data.meta.current_page < response.data.meta.last_page
 }
 
@@ -259,12 +271,7 @@ const loadMoreCards = async () => {
   try {
     currentPage.value++
     const response = await axios.get(`${base_url}/api/collections/${selectedCollection.value}/cards`, {
-        params: {
-            page: currentPage.value,
-            colorFilters: activeColors.value.join(','),
-            search: searchTerm.value,
-            sort: sortKey.value
-        }
+        params: queryParams.value
     })
     const newCards = response.data.data || []
 
@@ -607,7 +614,7 @@ function computeGlobalColorCounts(cards: any[]) {
                                             clearable
                                         ></v-text-field>
                                     </v-col>
-                                    <v-col cols="12" md="4">
+                                    <v-col cols="10" md="4">
                                         <v-select
                                             v-model="sortKey"
                                             :items="[
@@ -619,6 +626,12 @@ function computeGlobalColorCounts(cards: any[]) {
                                             variant="outlined"
                                             density="comfortable"
                                         ></v-select>
+                                    </v-col>
+                                    <v-col cols="2" md="4">
+                                        <v-btn v-model="sortDirection" @click="sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'" variant="outlined" class="mt-4">
+                                            <v-icon v-if="sortDirection === 'asc'">mdi-arrow-up</v-icon>
+                                            <v-icon v-else>mdi-arrow-down</v-icon>
+                                        </v-btn>
                                     </v-col>
                                 </v-row>
                             <v-row>

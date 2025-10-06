@@ -11,9 +11,9 @@ export function getNumericalManaCost(mana_cost: string): string {
   return match === null ? '' : match[1]
 }
 
-// Extracts color symbols from a string like "{U}{R}" or "{R/G}"
-export function getColorManaCost(mana_cost: string): string[] {
-  return Array.from(mana_cost.matchAll(colorSymbolRegex)).map(match => match[1])
+export function getColorManaCost(mana_cost: string | null | undefined): string[] {
+  if (!mana_cost || typeof mana_cost !== 'string') return [];
+  return Array.from(mana_cost.matchAll(colorSymbolRegex)).map(match => match[1]);
 }
 
 // Maps single-letter color codes to your internal naming convention
