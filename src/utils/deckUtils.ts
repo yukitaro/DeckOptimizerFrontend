@@ -38,3 +38,9 @@ export async function retrieveCardsForDeck(deck_id: any) {
     const response = await axios.get(`${base_url}/api/cardsInDeck/${deck_id}`)
     return response.data || []
 }
+
+export async function retrieveSideboardForDeck(deck_id: any) {
+    const response = await axios.get(`${base_url}/api/sideboard/${deck_id}`)
+    return response.data || []
+}
+
