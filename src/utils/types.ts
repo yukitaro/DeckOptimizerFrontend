@@ -48,4 +48,12 @@ export interface ShoppingListRow {
   mana_cost?: string
   type: string
   official_set_name?: string
+  price_1?: string
+  set_1?: string
+  price_2?: string
+  set_2?: string
+  price_3?: string
+  set_3?: string
+  tcg_player_link?: string
 }
+

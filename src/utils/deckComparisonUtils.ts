@@ -45,30 +45,51 @@ export function buildComparisonMatrix(decks: Deck[]): MatrixRow[] {
  * Aggregates total card counts across only the locked decks.
  */
 export async function buildShoppingList(decks: Deck[]): Promise<Card[]> {
-  const locked = decks.filter(d => d.locked)
-  const map = new Map<number, Card & { total: number }>()
+  const locked = decks.filter(d => d.locked);
+  const map = new Map<number, Card & { total: number }>();
 
+  // Aggregate card counts across locked decks
   locked.forEach(deck => {
     deck.cards.forEach(card => {
-      const prev = map.get(card.id)
+      const prev = map.get(card.id);
       if (prev) {
-        prev.total += card.card_count
+        prev.total += card.card_count;
       } else {
-        map.set(card.id, { ...card, total: card.card_count })
+        map.set(card.id, { ...card, total: card.card_count });
       }
-    })
-  })
+    });
+  });
 
-  const shoppingList = Array.from(map.values())
-  const normalizedIds = shoppingList.map(card => card.id)
+  const shoppingList = Array.from(map.values());
+  const normalizedIds = shoppingList.map(card => card.id);
 
-  await fetchPricesForShoppingList(normalizedIds)
+  // Fetch price data from backend
+  const retrievedPriceList = await fetchPricesForShoppingList(normalizedIds);
 
-  return shoppingList
+  // Attach up to 3 cheapest non-foil prices per card
+  shoppingList.forEach(card => {
+    const matchingPrices = (retrievedPriceList as any[])
+      .filter(p => p.normalized_card_id === card.id && !p.is_foil)
+      .sort((a, b) => (parseFloat(a.price) || Infinity) - (parseFloat(b.price) || Infinity))
+      .slice(0, 3);
+
+    card.prices = matchingPrices.map(p => ({
+      price: p.price,
+      is_foil: p.is_foil,
+      currency: p.currency,
+      source: p.source,
+      price_date: p.price_date,
+      set_name: p.set_code,
+      scryfall_id: p.scryfall_id,
+      tcg_player_link: p.tcg_player_link
+    }));
+  });
+
+  return shoppingList;
 }
 
 
-async function fetchPricesForShoppingList(normalizedIds: number[]): Promise<void> {
+async function fetchPricesForShoppingList(normalizedIds: number[]): Promise<any[]> {
   const response = await fetch(`${base_url}/api/fetch-card-prices`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -78,5 +99,6 @@ async function fetchPricesForShoppingList(normalizedIds: number[]): Promise<void
   const prices = await response.json()
 
   // You can now attach prices to cards, cache them, or pass to CSV export
-  console.log('Fetched prices:', prices)
+  //console.log('Fetched prices, KK was here:', prices)
+  return prices;
 }

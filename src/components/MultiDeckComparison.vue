@@ -230,21 +230,24 @@ const { downloadCsv } = useCsvExport<any>()
 
 async function exportToCSV() {
   if (lockedDeckIndexes.value.length === 0) {
-    return alert('No data to export')
+    return alert('No data to export');
   }
 
-  const lockedDecks = lockedDeckIndexes.value.map(i => decks.value[i])
-  const shoppingListForExport = await buildShoppingList(lockedDecks)
+  const lockedDecks = lockedDeckIndexes.value.map(i => decks.value[i]);
+  const shoppingListForExport = await buildShoppingList(lockedDecks);
 
   if (shoppingListForExport.length === 0) {
-    return alert('No cards found in locked decks.')
+    return alert('No cards found in locked decks.');
   }
 
-  // Shape rows for export
   const rows: ShoppingListRow[] = shoppingListForExport.map(card => {
-    const inventoryEntry = normalizedInventory.value[card.name]
-    const inventoryCount = inventoryEntry?.total_count ?? 0
-    const need = Math.max(card.total - inventoryCount, 0)
+    const inventoryEntry = normalizedInventory.value[card.name];
+    const inventoryCount = inventoryEntry?.total_count ?? 0;
+    const need = Math.max(card.total - inventoryCount, 0);
+
+    const priceVariants = card.prices?.slice(0, 3) ?? [];
+    const indexOfLowestPrice = priceVariants.reduce((minIndex, p, i, arr) => 
+      (p.price < arr[minIndex].price ? i : minIndex), 0);
 
     return {
       name: card.name,
@@ -253,23 +256,37 @@ async function exportToCSV() {
       need,
       mana_cost: card.mana_cost || '',
       type: card.type || '',
-      official_set_name: card.official_set_name || ''
-    }
-  })
-  
-    // Define columns that actually exist on ShoppingListRow
-  const columns: CsvColumn<ShoppingListRow>[] = [
-    { key: 'name',          label: 'Name' },
-    { key: 'total_locked',  label: 'Locked Total' },
-    { key: 'inventory',     label: 'Inventory' },
-    { key: 'need',          label: 'Need' },
-    { key: 'mana_cost',     label: 'Mana Cost' },
-    { key: 'type',          label: 'Type' },
-    { key: 'official_set_name', label: 'Set' }
-  ]
+      official_set_name: card.official_set_name || '',
+      price_1: priceVariants[0]?.price ?? '',
+      set_1: priceVariants[0]?.set_name ?? '',
+      price_2: priceVariants[1]?.price ?? '',
+      set_2: priceVariants[1]?.set_name ?? '',
+      price_3: priceVariants[2]?.price ?? '',
+      set_3: priceVariants[2]?.set_name ?? '',
+      tcg_player_link: priceVariants[indexOfLowestPrice]?.tcg_player_link || ''
+    };
+  });
 
-  downloadCsv(rows, columns, 'shopping_list.csv')
+  const columns: CsvColumn<ShoppingListRow>[] = [
+    { key: 'name',             label: 'Name' },
+    { key: 'total_locked',     label: 'Locked Total' },
+    { key: 'inventory',        label: 'Inventory' },
+    { key: 'need',             label: 'Need' },
+    { key: 'mana_cost',        label: 'Mana Cost' },
+    { key: 'type',             label: 'Type' },
+    { key: 'official_set_name',label: 'Set' },
+    { key: 'price_1',          label: 'Price 1' },
+    { key: 'set_1',            label: 'Set 1' },
+    { key: 'price_2',          label: 'Price 2' },
+    { key: 'set_2',            label: 'Set 2' },
+    { key: 'price_3',          label: 'Price 3' },
+    { key: 'set_3',            label: 'Set 3' },
+    { key: 'tcg_player_link',  label: 'TCGPlayer Link' }
+  ];
+
+  downloadCsv(rows, columns, 'shopping_list.csv');
 }
+
 
 // Helper function to get type-specific icons
 function getTypeIcon(type: string): string {
