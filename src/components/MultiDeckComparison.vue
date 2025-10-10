@@ -22,7 +22,7 @@ const selectedDecks = deckData.selectedDecks
 const moveDeckImmutable = deckData.moveDeckImmutable
 const uniqueCardsInComparison = ref<string[]>([])
 const listOfCollections = ref([])
-const collectionsForInventory = ref<number[]>([1]) // Default collection ID
+const collectionsForInventory = ref<number[]>([15]) // Default collection ID
 const normalizedInventory = ref<Record<string, any>>({}) // Inventory data
 
 // 2️⃣ Define type groups and selection
@@ -309,17 +309,20 @@ function getCountColor(count: number): string {
 }
 
 const fetchCollections = async () => {
-    try {
-        const response = await axios.get(`${base_url}/collections`)
-        listOfCollections.value = response.data
-    } catch (error) {
-        console.error('Error fetching collections:', error)
-    }
+  try {
+    const response = await axios.get(`${base_url}/collections`)
+    listOfCollections.value = response.data.map(c => ({
+      id: c.id,
+      name: c.collection_name,
+      description: c.description
+    }))
+  } catch (error) {
+    console.error('Error fetching collections:', error)
+  }
 }
 
 onMounted(() => {
    fetchCollections()
-
 })
 </script>
 
@@ -388,7 +391,15 @@ onMounted(() => {
               chips
               clearable
               variant="outlined"
-            />
+              return-object
+            >
+              <template v-slot:item="{ item, props }">
+                <v-list-item v-bind="props">
+                  <v-list-item-title>{{ item.name }}</v-list-item-title>
+                  <v-list-item-subtitle>{{ item.description }}</v-list-item-subtitle>
+                </v-list-item>
+              </template>
+            </v-select>
 
             <!-- Type Filters -->
             <v-expansion-panels class="mb-4" variant="accordion">

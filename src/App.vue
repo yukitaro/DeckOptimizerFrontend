@@ -31,6 +31,15 @@
             :color="$route.path === '/collections' ? 'primary' : 'default'" size="large"
             class="nav-btn" prepend-icon="mdi-archive">
             Collection
+          </v-btn>
+
+          <v-btn :to="'/settings'"
+            :variant="$route.path === '/settings' ? 'elevated' : 'text'"
+            :color="$route.path === '/settings' ? 'primary' : 'default'"
+            size="large"
+            class="nav-btn"
+            prepend-icon="mdi-cog">
+            Settings
           </v-btn>          
         </div>
       </div>

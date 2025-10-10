@@ -10,6 +10,8 @@ const selectedCollection = ref(1)
 const selectedMode = ref('merge')
 const importSummary = ref(null)
 const isImporting = ref(false)
+const toastMessage = ref('')
+const toastColor = ref('success')
 const cardsInCollection = ref([])
 const currentPage = ref(1)
 const hasMore = ref(true)
@@ -18,9 +20,14 @@ const shouldExcludeMultiColor = ref(false)
 
 const searchTerm = ref('')
 const sortKey = ref('name')
-const sortDirection = ref('desc')
+const sortDirection = ref('asc')
 const activeColors = ref<string[]>([])
 const groupByName = ref(false)
+
+// for collection deletion
+const deleteDialog = ref(false)
+const deleteSnackbar = ref(false)
+const collectionToDelete = ref(null)
 
 function onColorFilterChange(newColors: string[]) {
   activeColors.value = newColors
@@ -59,15 +66,24 @@ const submitImport = async () => {
     formData.append('collection_id', selectedCollection.value)
     formData.append('mode', selectedMode.value)
 
-    try {
-        const response = await axios.post(`${base_url}/api/collections/import-csv`, formData)
-        importSummary.value = response.data.summary || 'Import completed successfully.'
-    } catch (error) {
-        importSummary.value = error.response?.data?.message || 'Import failed.'
-        console.error('Import error:', error)
-    } finally {
-        isImporting.value = false
+    const response = await axios.post(`${base_url}/api/collections/import-csv`, formData)
+    //importSummary.value = response.data.summary || 'Import completed successfully.'
+    pollImportStatus(selectedCollection.value)
+}
+
+const pollImportStatus = async (collectionId) => {
+  const interval = setInterval(async () => {
+    const { data } = await axios.get(`${base_url}/api/collections/${collectionId}/import-status`)
+    if (data.status === 'complete') {
+      clearInterval(interval)
+      toastMessage.value = 'Import complete!'
+      isImporting.value = false
+      await fetchCollectionCards(collectionId)
+    } else if (data.status === 'failed') {
+      clearInterval(interval)
+      toastMessage.value = 'Import failed. Check logs for details.'
     }
+  }, 3000)
 }
 
 const createCollection = async () => {
@@ -313,6 +329,27 @@ function computeGlobalColorCounts(cards: any[]) {
 
   globalColorCounts.value = counts
 }
+
+function confirmDelete(collection) {
+    collectionToDelete.value = collection;
+    deleteDialog.value = true;
+}
+
+async function deleteCollection() {
+  try {
+    await axios.delete(`${base_url}/api/collections/${collectionToDelete.value.id}`);
+    listOfCollections.value = listOfCollections.value.filter(
+      c => c.id !== collectionToDelete.value.id
+    );
+    deleteSnackbar.value = true;
+  } catch (error) {
+    console.error('Failed to delete collection:', error);
+    // Optional: use a toast library or fallback UI
+  } finally {
+    deleteDialog.value = false;
+    collectionToDelete.value = null;
+  }
+}
 </script>
 
 <template>
@@ -422,27 +459,36 @@ function computeGlobalColorCounts(cards: any[]) {
 
                     <v-form class="import-form">
                         <!-- Collection Selection -->
+                        <v-snackbar v-model="showToast" :timeout="3000" :color="toastColor" >
+                        {{ toastMessage }}
+                        </v-snackbar>                         
                         <v-select
-                            v-model="selectedCollection"
-                            :items="listOfCollections"
-                            item-title="name"
-                            item-value="id"
-                            label="Choose Collection"
-                            placeholder="Select a collection..."
-                            variant="outlined"
-                            density="comfortable"
-                            prepend-inner-icon="mdi-folder-open"
-                            class="mb-4"
-                            :rules="[v => !!v || 'Please select a collection']"
+                        v-model="selectedCollection"
+                        :items="listOfCollections"
+                        item-title="name"
+                        item-value="id"
+                        label="Choose Collection"
+                        placeholder="Select a collection..."
+                        variant="outlined"
+                        density="comfortable"
+                        prepend-inner-icon="mdi-folder-open"
+                        class="mb-4"
+                        :rules="[v => !!v || 'Please select a collection']"
                         >
-                            <template v-slot:item="{ props, item }">
-                                <v-list-item v-bind="props">
-                                    <v-list-item-title>{{ item.raw.name }}</v-list-item-title>
-                                    <v-list-item-subtitle v-if="item.raw.description">
-                                        {{ item.raw.description }}
-                                    </v-list-item-subtitle>
-                                </v-list-item>
-                            </template>
+                        <!-- dropdown rows -->
+                        <template v-slot:item="{ props, item }">
+                            <v-list-item v-bind="props">
+                            <v-list-item-title>{{ item.raw.collection_name }}</v-list-item-title>
+                            <v-list-item-subtitle v-if="item.raw.description">
+                                {{ item.raw.description }}
+                            </v-list-item-subtitle>
+                            </v-list-item>
+                        </template>
+
+                        <!-- selected label -->
+                        <template v-slot:selection="{ item }">
+                            <span v-if="item && item.raw">{{ item.raw.collection_name }}</span>
+                        </template>
                         </v-select>
 
                         <!-- Import Mode Selection -->
@@ -540,14 +586,22 @@ function computeGlobalColorCounts(cards: any[]) {
                                 <v-card class="collection-item-card" variant="outlined">
                                     <v-card-text class="pa-4">
                                         <h3 class="text-h6 font-weight-bold mb-2">
-                                            {{ collection.name }}
+                                            {{ collection.collection_name }}
                                         </h3>
-                                        <p v-if="collection.description" class="text-body-2 text-medium-emphasis">
-                                            {{ collection.description }}
-                                        </p>
-                                        <p v-else class="text-body-2 text-disabled">
-                                            No description provided
-                                        </p>
+                                        <span>
+                                            <p v-if="collection.description" class="text-body-2 text-medium-emphasis">
+                                                {{ collection.description }}
+                                            </p>
+                                            <p v-else class="text-body-2 text-disabled">
+                                                    No description provided
+                                                </p>
+                                            <p v-if="collection.total_cards" class="text-body-2 text-medium-emphasis">
+                                                Unique:{{ collection.total_unique_cards }}
+                                            </p>
+                                            <p v-if="collection.total_cards" class="text-body-2 text-medium-emphasis">
+                                                Total:{{ collection.total_cards }}
+                                            </p>                                            
+                                        </span>                                        
                                     </v-card-text>
                                     <v-card-actions class="pa-4 pt-0">
                                         <v-btn 
@@ -559,16 +613,38 @@ function computeGlobalColorCounts(cards: any[]) {
                                             View Cards
                                         </v-btn>
                                         <v-spacer></v-spacer>
-                                        <v-btn 
-                                            variant="text" 
-                                            size="small" 
-                                            icon="mdi-dots-vertical"
-                                        ></v-btn>
                                     </v-card-actions>
+                                    <v-menu location="bottom end">
+                                    <template v-slot:activator="{ props }">
+                                        <v-btn v-bind="props" variant="text" size="small" icon="mdi-dots-vertical"></v-btn>
+                                    </template>
+                                    <v-list density="compact">
+                                        <v-list-item @click="confirmDelete(collection)">
+                                        <v-list-item-title>Delete</v-list-item-title>
+                                        </v-list-item>
+                                    </v-list>
+                                    </v-menu>                                    
                                 </v-card>
                             </v-col>
+                            <v-dialog v-model="deleteDialog" max-width="500">
+                                <v-card>
+                                    <v-card-title class="text-h6 font-weight-bold">
+                                    Delete Collection
+                                    </v-card-title>
+                                    <v-card-text>
+                                    Are you sure you want to delete <strong>{{ collectionToDelete?.name }}</strong>? This action cannot be undone.
+                                    </v-card-text>
+                                    <v-card-actions>
+                                    <v-spacer></v-spacer>
+                                    <v-btn variant="text" @click="deleteDialog = false">Cancel</v-btn>
+                                    <v-btn color="error" variant="elevated" @click="deleteCollection">Delete</v-btn>
+                                    </v-card-actions>
+                                </v-card>
+                            </v-dialog>  
+                            <v-snackbar v-model="deleteSnackbar" color="success" timeout="3000">
+                            Collection deleted successfully.
+                            </v-snackbar>                                                      
                         </v-row>
-
                         <v-empty-state
                             v-else
                             icon="mdi-folder-plus"
