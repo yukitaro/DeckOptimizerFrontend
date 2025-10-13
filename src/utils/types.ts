@@ -9,6 +9,7 @@ export interface Card {
   mana_cost?: string
   image_url_to_use?: string
   official_set_name?: string
+  board_group?: string
 }
 
 export interface MtgCard {
@@ -28,6 +29,7 @@ export interface Deck {
   deck_id: number
   deck_name: string
   cards: Card[]
+  sideboard_cards?: Card[]
   locked?: boolean
 }
 

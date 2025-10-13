@@ -7,18 +7,19 @@ const base_url = "http://localhost:80";
  * and `counts[col]` is how many of that card each deck has.
  */
 export function buildComparisonMatrix(decks: Deck[]): MatrixRow[] {
-  const map = new Map<number, MatrixRow>()
+  const map = new Map<string, MatrixRow>()
 
   decks.forEach((deck, colIdx) => {
     deck.cards.forEach((card: Card, i) => {
-    if (!card || typeof card.id !== 'number') {
-      console.error(`Null or invalid card at deck ${deck.deck_id}, index ${i}:`, card)
-      debugger
-      return
-    }
+      if (!card || typeof card.id !== 'number') {
+        console.error(`Null or invalid card at deck ${deck.deck_id}, index ${i}:`, card)
+        debugger
+        return
+      }
+      const key = `${card.id}_main}`
 
-      if (!map.has(card.id)) {
-        map.set(card.id, {
+      if (!map.has(key)) {
+        map.set(key, {
           id: card.id,
           name: card.name,
           type: card.type,
@@ -26,7 +27,21 @@ export function buildComparisonMatrix(decks: Deck[]): MatrixRow[] {
           deckCounts: {},
         })
       }
-      map.get(card.id)!.deckCounts[`deck_${deck.deck_id}`] = card.card_count
+      map.get(key)!.deckCounts[`deck_${deck.deck_id}_main`] = card.card_count
+    })
+    deck.sideboard_cards?.forEach((card: Card, i) => {
+      const key = `${card.id}_side}`
+
+      if (!map.has(key)) {
+        map.set(key, {
+          id: card.id,
+          name: card.name,
+          type: "Sideboard",
+          mana_cost: card.mana_cost,
+          deckCounts: {},
+        })
+      }
+      map.get(key)!.deckCounts[`deck_${deck.deck_id}_side`] = card.card_count
     })
   })
 

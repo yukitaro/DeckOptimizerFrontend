@@ -1,11 +1,12 @@
 import { Deck, Card } from '@/utils/types'
 import { nextTick, ref } from 'vue'
 import axios from 'axios'
-import { retrieveCardsForDeck } from '@/utils/deckUtils';
+import { retrieveCardsForDeck, retrieveCardsForDeckByBoardGroup, retrieveSideboardForDeck } from '@/utils/deckUtils';
 
 const base_url = "http://localhost:80";
 
 const cardsInSelectedDeck = ref<Card[][]>([])
+const cardsInSideboardOfSelectedDeck = ref<Card[][]>([])
 const listOfStoredDecks = ref<Deck[]>([])
 
 const dictOfCardImageUrls = ref<Record<string, string>>({})
@@ -32,17 +33,28 @@ export function useDeckData() {
     }
   }
 
-  async function getCardsForDeckByIndex(deck_id: number, index: number) {
+  async function getCardsForDeckByIndex(deck_id: number, index: number, board_groups: string = "main,side") {
     try {
-      const cards: Card[] = await retrieveCardsForDeck(deck_id)
-
+      const response = await retrieveCardsForDeckByBoardGroup(deck_id, board_groups)
+      const cards: Card[] = response[`main`]
+      const sideboardCards: Card[] = response[`side`]
+      
       cardsInSelectedDeck.value[index] = cards
+      cardsInSideboardOfSelectedDeck.value[index] = sideboardCards
 
       for (const card of cards) {
         if (card.name && card.image_url_to_use) {
           dictOfCardImageUrls.value[card.name] = card.image_url_to_use
         }
-      }      
+      }
+
+      for (const card of sideboardCards) {
+        if (card.name && card.image_url_to_use) {
+          dictOfCardImageUrls.value[card.name] = card.image_url_to_use
+        }
+      }
+
+
     } catch (err) {
       console.error(`Failed to fetch cards for deck ${deck_id}`, err)
       return []
@@ -53,6 +65,16 @@ export function useDeckData() {
     // function here to reload the list of stored decks.
     // should call this after we import a new deck
     // bonus points if we only retrieve the new one(s)
+  }
+
+  async function getDeckArchetypesInDB() {
+    try {
+      const response = await axios.get(`${base_url}/api/decks/archetypes`)
+      return response.data
+    } catch (error) {
+      //console.error("Error fetching deck archetypes:", error)
+      console.log("Oh no, couldn't retrieve archetypes!")
+    }
   }
 
   async function getDecksFromDB() {
@@ -89,6 +111,7 @@ export function useDeckData() {
 
   function resetCardsForSelectedDecks(newDecks: Deck[]) {
     cardsInSelectedDeck.value = newDecks.map(() => [])
+    cardsInSideboardOfSelectedDeck.value = newDecks.map(() => [])
   }
 
   function addDeckForComparison(deck: Deck) {
@@ -102,6 +125,7 @@ export function useDeckData() {
   function moveDeckImmutable(from: number, to: number) {
     const decks = [...selectedDecks.value]
     const cards = [...cardsInSelectedDeck.value]
+    const sideboardCards = [...cardsInSideboardOfSelectedDeck.value]
 
     const deck = decks.splice(from, 1)[0]
     decks.splice(to, 0, deck)
@@ -109,8 +133,12 @@ export function useDeckData() {
     const cardGroup = cards.splice(from, 1)[0]
     cards.splice(to, 0, cardGroup)
 
+    const sideboardGroup = sideboardCards.splice(from, 1)[0]
+    sideboardCards.splice(to, 0, sideboardGroup)
+
     selectedDecks.value = decks
     cardsInSelectedDeck.value = cards
+    cardsInSideboardOfSelectedDeck.value = sideboardCards
   }
 
 
@@ -119,10 +147,12 @@ export function useDeckData() {
     // 1️⃣ update selection
     selectedDecks.value = []
     cardsInSelectedDeck.value = []
+    cardsInSideboardOfSelectedDeck.value = []
 
     if (newSelection) {
       selectedDecks.value = [ newSelection ]
       cardsInSelectedDeck.value = [[]]
+      cardsInSideboardOfSelectedDeck.value = [[]]
     }
 
     // 3️⃣ fetch each deck's cards
@@ -133,10 +163,12 @@ export function useDeckData() {
   return {
     addDeckForComparison,
     cardsInSelectedDeck,
+    cardsInSideboardOfSelectedDeck,
     deleteDeck,
     dictOfCardImageUrls,
     getCardsForDeck,
     getCardsForDeckByIndex,
+    getDeckArchetypesInDB,
     getDecksFromDB,
     handleSingleDeckChange,
     listOfStoredDecks,

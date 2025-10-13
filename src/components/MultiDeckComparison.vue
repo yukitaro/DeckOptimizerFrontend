@@ -12,6 +12,8 @@ const base_url = "http://localhost:80";
 // 1️⃣ Grab selected decks and their cards
 const {
   cardsInSelectedDeck,
+  cardsInSideboardOfSelectedDeck,
+  getDeckArchetypesInDB,
   getCardsForDeckByIndex,
   listOfStoredDecks,
   resetCardsForSelectedDecks,
@@ -21,6 +23,9 @@ const deckData = useDeckData()
 const selectedDecks = deckData.selectedDecks
 const moveDeckImmutable = deckData.moveDeckImmutable
 const uniqueCardsInComparison = ref<string[]>([])
+const listOfArchetypes = ref<string[]>([])
+const selectedArchetype = ref('')
+
 const listOfCollections = ref([])
 const collectionsForInventory = ref<number[]>([15]) // Default collection ID
 const normalizedInventory = ref<Record<string, any>>({}) // Inventory data
@@ -32,7 +37,8 @@ const typeHierarchy = [
   'Instant',
   'Sorcery',
   'Enchantment',
-  'Land'
+  'Land',
+  'Sideboard'
 ]
 const selectedTypes = ref<string[]>([...typeHierarchy])
 const deckWidths = ref<number[]>([])
@@ -49,6 +55,7 @@ const decks = computed<Deck[]>(() =>
     deck_id: d.deck_id,
     deck_name: d.deck_name,
     cards: cardsInSelectedDeck.value[i] || [],
+    sideboard_cards: cardsInSideboardOfSelectedDeck.value[i] || [],
     locked: d.locked,
     archetype: d.archetype ?? null
   }))
@@ -90,7 +97,17 @@ const groupedItems = computed(() => {
   return groups
 })
 
-// 8️⃣ Fetch cards when decks change
+const decksFilteredByArchetype = computed(() => {
+  const selected = selectedArchetype.value?.toLowerCase().trim()
+  if (!selected || selected === 'all') {
+    return listOfStoredDecks.value
+  }
+  return listOfStoredDecks.value.filter(deck =>
+    deck.archetype?.toLowerCase().trim() === selected
+  )
+})
+
+// Fetch cards when decks change
 async function handleSelectionChange(newSelection: Deck[]) {
   // 1️⃣ update selection
   selectedDecks.value = newSelection
@@ -296,7 +313,8 @@ function getTypeIcon(type: string): string {
     'Instant': 'mdi-flash',
     'Sorcery': 'mdi-book-open-page-variant',
     'Enchantment': 'mdi-shimmer',
-    'Land': 'mdi-terrain'
+    'Land': 'mdi-terrain',
+    'Sideboard': 'mdi-view-list'
   }
   return iconMap[type] || 'mdi-cards'
 }
@@ -306,6 +324,15 @@ function getCountColor(count: number): string {
   if (count >= 4) return 'success'
   if (count >= 2) return 'warning'
   return 'info'
+}
+
+const fetchArchetypes = async () => {
+  try {
+    const archetypes = await getDeckArchetypesInDB()
+    listOfArchetypes.value = ['All', ...archetypes]
+  } catch (error) {
+    console.error('Error fetching archetypes:', error)
+  }
 }
 
 const fetchCollections = async () => {
@@ -322,7 +349,12 @@ const fetchCollections = async () => {
 }
 
 onMounted(() => {
-   fetchCollections()
+  fetchArchetypes()
+  fetchCollections()
+})
+
+watch(decksFilteredByArchetype, (val) => {
+  console.log('Filtered decks:', val)
 })
 </script>
 
@@ -347,8 +379,13 @@ onMounted(() => {
               </v-col>              
             </v-row>            
             <!-- Deck Selection -->
+             <v-combobox
+               v-model="selectedArchetype"
+               :items="listOfArchetypes"
+               label="Filter by Archetype"
+             />
             <v-combobox
-              :items="listOfStoredDecks"
+              :items="decksFilteredByArchetype"
               :model-value="selectedDecks"
               @update:modelValue="handleSelectionChange"
               item-title="deck_name"
@@ -571,12 +608,20 @@ onMounted(() => {
                     :style="{ width: deckWidths[index] + 'px' }"
                   >
                     <v-chip
-                      v-if="card.deckCounts[`deck_${deck.deck_id}`]"
-                      :color="getCountColor(card.deckCounts[`deck_${deck.deck_id}`])"
+                      v-if="card.deckCounts[`deck_${deck.deck_id}_main`] && card.type !== 'Sideboard'"
+                      :color="getCountColor(card.deckCounts[`deck_${deck.deck_id}_main`])"
                       size="small"
                       variant="elevated"
                     >
-                      {{ card.deckCounts[`deck_${deck.deck_id}`] }}
+                      {{ card.deckCounts[`deck_${deck.deck_id}_main`] }}
+                    </v-chip>
+                    <v-chip
+                      v-else-if="card.deckCounts[`deck_${deck.deck_id}_side`] && card.type === 'Sideboard'"
+                      :color="getCountColor(card.deckCounts[`deck_${deck.deck_id}_side`])"
+                      size="small"
+                      variant="elevated"
+                    >
+                      {{ card.deckCounts[`deck_${deck.deck_id}_side`] }}
                     </v-chip>
                     <span v-else class="no-card">-</span>
                   </div>
