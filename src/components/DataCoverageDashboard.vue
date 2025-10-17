@@ -1,10 +1,20 @@
 <script setup>
-import { useCoverageStats } from '@/composables/useCoverageStats'
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
+import { fetchDataCoverage } from '@/api/dashboard'
 import DashboardCard from './DashboardCard.vue'
 
-const { stats, fetchCoverage } = useCoverageStats()
-onMounted(() => fetchCoverage())
+const stats = ref([])
+const loading = ref(true)
+
+onMounted(async () => {
+  try {
+    stats.value = await fetchDataCoverage()
+  } catch (err) {
+    console.error('Failed to load coverage:', err)
+  } finally {
+    loading.value = false
+  }
+})
 
 function highlight(value) {
   const pct = parseFloat(value)
@@ -44,7 +54,17 @@ function highlight(value) {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in stats" :key="row.set_name">
+        <tr v-if="loading" v-for="n in 5" :key="n">
+          <td><v-skeleton-loader type="text" width="60px" /></td>
+          <td><v-skeleton-loader type="text" width="40px" /></td>
+          <td><v-skeleton-loader type="text" width="50px" /></td>
+          <td><v-skeleton-loader type="text" width="50px" /></td>
+          <td><v-skeleton-loader type="text" width="50px" /></td>
+          <td><v-skeleton-loader type="text" width="40px" /></td>
+          <td><v-skeleton-loader type="text" width="30px" /></td>
+        </tr>
+
+        <tr v-else v-for="row in stats" :key="row.set_name">
           <td>{{ row.set_name }}</td>
           <td>{{ row.total_raw_cards }}</td>
           <td :class="highlight(row.metadata_pct)">{{ row.metadata_pct }}%</td>
