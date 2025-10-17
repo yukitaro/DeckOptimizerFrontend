@@ -274,7 +274,7 @@ async function searchAgainstSetData() {
     }
 
     if (searchText.value.length === 0) {
-        const cardDataResponse = await axios.get(`${base_url}/cardsfromsets/${selectedSets.value[0].value}`, {
+        const cardDataResponse = await axios.get(`${base_url}/cardsfromsets/${selectedSets.value}`, {
             params: {
                 limit: limitToRetrieve.value,
                 colorFilters: colorFilterParam.value
