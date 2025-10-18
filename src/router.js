@@ -5,8 +5,9 @@ import Decks from './components/Decks.vue'
 import Collections from './components/Collections.vue'
 import Settings from './components/Settings.vue'
 import AdminConsole from './components/AdminConsole.vue'
-import ImageCoverageDashboard from './components/ImageCoverageDashboard.vue'
 import DataCoverageDashboard from './components/DataCoverageDashboard.vue'
+import ImageCoverageDashboard from './components/ImageCoverageDashboard.vue'
+import ImportCandidatesDashboard from './components/ImportCandidatesDashboard.vue'
 
 const routes = [
     { path: '/', component: CardListingVuetify },
@@ -15,7 +16,9 @@ const routes = [
     { path: '/settings', component: Settings },
     { path: '/adminconsole', component: AdminConsole, meta: { requiresAuth: true } },
     { path: '/adminconsole/image-coverage', component: ImageCoverageDashboard, meta: { requiresAuth: true } },
-    { path: '/adminconsole/data-coverage', component: DataCoverageDashboard, meta: { requiresAuth: true } }
+    { path: '/adminconsole/data-coverage', component: DataCoverageDashboard, meta: { requiresAuth: true } },
+    { path: '/importcandidates', component: ImportCandidatesDashboard, meta: { requiresAuth: true } }
+    
 ]
 
 const router = createRouter({

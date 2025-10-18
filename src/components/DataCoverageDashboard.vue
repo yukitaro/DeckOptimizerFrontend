@@ -1,10 +1,34 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { fetchDataCoverage } from '@/api/dashboard'
 import DashboardCard from './DashboardCard.vue'
 
 const stats = ref([])
 const loading = ref(true)
+const showIncompleteOnly = ref(true)
+
+const headers = [
+  { title: 'Set', key: 'set_name', sortable: true },
+  { title: 'Release Date', key: 'release_date', sortable: true },
+  { title: 'Total', key: 'total_raw_cards', sortable: true },
+  { title: 'Metadata %', key: 'metadata_pct', sortable: true },
+  { title: 'Normalized %', key: 'normalization_pct', sortable: true },
+  { title: 'Image %', key: 'image_pct', sortable: true },
+  { title: 'Missing Enrichment', key: 'missing_enrichment_timestamp', sortable: true },
+  { title: 'Logic Versions', key: 'logic_versions_used', sortable: true }
+]
+
+function formatDate(dateStr) {
+  return dateStr ? new Date(dateStr).toLocaleDateString() : '—'
+}
+
+const filteredStats = computed(() => {
+  if (!showIncompleteOnly.value) return stats.value
+  return stats.value.filter(row =>
+    parseFloat(row.normalization_pct) < 100 ||
+    parseFloat(row.image_pct) < 100
+  )
+})
 
 onMounted(async () => {
   try {
@@ -40,41 +64,23 @@ function highlight(value) {
 </style>
 
 <template>
+  <v-switch
+    v-model="showIncompleteOnly"
+    label="Show only incomplete sets"
+  />  
   <DashboardCard title="Set Coverage Overview">
-    <table class="coverage-table">
-      <thead>
-        <tr>
-          <th>Set</th>
-          <th>Total</th>
-          <th>Metadata %</th>
-          <th>Normalized %</th>
-          <th>Image %</th>
-          <th>Missing Enrichment</th>
-          <th>Logic Versions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-if="loading" v-for="n in 5" :key="n">
-          <td><v-skeleton-loader type="text" width="60px" /></td>
-          <td><v-skeleton-loader type="text" width="40px" /></td>
-          <td><v-skeleton-loader type="text" width="50px" /></td>
-          <td><v-skeleton-loader type="text" width="50px" /></td>
-          <td><v-skeleton-loader type="text" width="50px" /></td>
-          <td><v-skeleton-loader type="text" width="40px" /></td>
-          <td><v-skeleton-loader type="text" width="30px" /></td>
-        </tr>
-
-        <tr v-else v-for="row in stats" :key="row.set_name">
-          <td>{{ row.set_name }}</td>
-          <td>{{ row.total_raw_cards }}</td>
-          <td :class="highlight(row.metadata_pct)">{{ row.metadata_pct }}%</td>
-          <td :class="highlight(row.normalization_pct)">{{ row.normalization_pct }}%</td>
-          <td :class="highlight(row.image_pct)">{{ row.image_pct }}%</td>
-          <td>{{ row.missing_enrichment_timestamp }}</td>
-          <td>{{ row.logic_versions_used }}</td>
-        </tr>
-      </tbody>
-    </table>
+    <v-data-table
+      :items="filteredStats"
+      :headers="headers"
+      :loading="loading"
+      :sort-by="['release_date']"
+      sort-desc
+      class="elevation-1"
+      density="compact">
+      <template #item.release_date="{ item }">
+        {{ formatDate(item.release_date) }}
+      </template>
+    </v-data-table>
   </DashboardCard>
 </template>
 

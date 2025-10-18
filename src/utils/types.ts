@@ -59,3 +59,15 @@ export interface ShoppingListRow {
   tcg_player_link?: string
 }
 
+export interface ImportCandidate {
+  set_code: string;
+  set_name: string;
+  release_date: string;
+  metadata_pct: number;
+  normalization_pct: number;
+  image_pct: number;
+  ready_for_import: boolean;
+  imported_into_database: boolean;
+}
+
+
