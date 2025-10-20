@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, reactive, ref, toRaw, watch, watchEffect } from 'vue'
 import axios from 'axios'
 
-const base_url = "http://localhost:80";
+const base_api_url = import.meta.env.VITE_LARAVEL_API_BASE_URL;
 
 const csvFile = ref(null)
 const listOfCollections = ref([])
@@ -66,14 +66,14 @@ const submitImport = async () => {
     formData.append('collection_id', selectedCollection.value)
     formData.append('mode', selectedMode.value)
 
-    const response = await axios.post(`${base_url}/api/collections/import-csv`, formData)
+    const response = await axios.post(`${base_api_url}/collections/import-csv`, formData)
     //importSummary.value = response.data.summary || 'Import completed successfully.'
     pollImportStatus(selectedCollection.value)
 }
 
 const pollImportStatus = async (collectionId) => {
   const interval = setInterval(async () => {
-    const { data } = await axios.get(`${base_url}/api/collections/${collectionId}/import-status`)
+    const { data } = await axios.get(`${base_api_url}/collections/${collectionId}/import-status`)
     if (data.status === 'complete') {
       clearInterval(interval)
       toastMessage.value = 'Import complete!'
@@ -90,7 +90,7 @@ const createCollection = async () => {
     if (!newCollectionFields.name.trim()) return
     
     try {
-        const response = await axios.post(`${base_url}/api/collections/create`, {
+        const response = await axios.post(`${base_api_url}/collections/create`, {
             name: newCollectionFields.name,
             description: newCollectionFields.description
         })
@@ -114,7 +114,7 @@ const viewCollection = async (collectionId) => {
     currentPage.value = 1
     hasMore.value = true
     try {
-        const response = await axios.get(`${base_url}/api/collections/${collectionId}/cards`, {
+        const response = await axios.get(`${base_api_url}/collections/${collectionId}/cards`, {
             params: queryParams.value
         })
 
@@ -146,7 +146,7 @@ const viewCollection = async (collectionId) => {
 
 const fetchCollections = async () => {
     try {
-        const response = await axios.get(`${base_url}/collections`)
+        const response = await axios.get(`${base_api_url}/collections`)
         listOfCollections.value = response.data
     } catch (error) {
         console.error('Error fetching collections:', error)
@@ -266,7 +266,7 @@ watch(queryParams, async () => {
 })
 
 async function refreshFilteredCards() {
-  const response = await axios.get(`${base_url}/api/collections/${selectedCollection.value}/cards`, {
+  const response = await axios.get(`${base_api_url}/collections/${selectedCollection.value}/cards`, {
     params: queryParams.value
 /*     params: {
       page: 1,
@@ -286,7 +286,7 @@ const loadMoreCards = async () => {
   isLoading.value = true
   try {
     currentPage.value++
-    const response = await axios.get(`${base_url}/api/collections/${selectedCollection.value}/cards`, {
+    const response = await axios.get(`${base_api_url}/collections/${selectedCollection.value}/cards`, {
         params: queryParams.value
     })
     const newCards = response.data.data || []
@@ -337,7 +337,7 @@ function confirmDelete(collection) {
 
 async function deleteCollection() {
   try {
-    await axios.delete(`${base_url}/api/collections/${collectionToDelete.value.id}`);
+    await axios.delete(`${base_api_url}/collections/${collectionToDelete.value.id}`);
     listOfCollections.value = listOfCollections.value.filter(
       c => c.id !== collectionToDelete.value.id
     );

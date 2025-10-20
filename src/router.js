@@ -8,6 +8,7 @@ import AdminConsole from './components/AdminConsole.vue'
 import DataCoverageDashboard from './components/DataCoverageDashboard.vue'
 import ImageCoverageDashboard from './components/ImageCoverageDashboard.vue'
 import ImportCandidatesDashboard from './components/ImportCandidatesDashboard.vue'
+import MtgSetDataDashboard from './components/MtgSetDataDashboard.vue'
 
 const routes = [
     { path: '/', component: CardListingVuetify },
@@ -17,7 +18,8 @@ const routes = [
     { path: '/adminconsole', component: AdminConsole, meta: { requiresAuth: true } },
     { path: '/adminconsole/image-coverage', component: ImageCoverageDashboard, meta: { requiresAuth: true } },
     { path: '/adminconsole/data-coverage', component: DataCoverageDashboard, meta: { requiresAuth: true } },
-    { path: '/importcandidates', component: ImportCandidatesDashboard, meta: { requiresAuth: true } }
+    { path: '/importcandidates', component: ImportCandidatesDashboard, meta: { requiresAuth: true } },
+    { path: '/magicsetdata', component: MtgSetDataDashboard, meta: { requiresAuth: true } }
     
 ]
 

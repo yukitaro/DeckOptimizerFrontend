@@ -3,7 +3,8 @@ export const numericalManaCostRegEx = /\{(X|\d+)\}/
 export const colorSymbolRegex = /\{([RGBUW]\/[RGBUW]|[RGBUW]|)\}/g
 import axios from 'axios';
 
-const base_url = "http://localhost:80";
+const base_url = import.meta.env.VITE_LARAVEL_API_BASE_URL; 
+
 
 // Extracts numerical mana cost from a string like "{3}{R}"
 export function getNumericalManaCost(mana_cost: string): string {
@@ -35,17 +36,17 @@ export function mapColorCodeToName(colorCode: string): string {
 }
 
 export async function retrieveCardsForDeck(deck_id: any) {
-    const response = await axios.get(`${base_url}/api/cardsInDeck/${deck_id}`)
+    const response = await axios.get(`${base_url}/cardsInDeck/${deck_id}`)
     return response.data || []
 }
 
 export async function retrieveCardsForDeckByBoardGroup(deck_id: any, board_groups: string) {
-    const response = await axios.get(`${base_url}/api/cardsInDeck/${deck_id}/boardgroups/${board_groups}`)
+    const response = await axios.get(`${base_url}/cardsInDeck/${deck_id}/boardgroups/${board_groups}`)
     return response.data || []
 }
 
 export async function retrieveSideboardForDeck(deck_id: any) {
-    const response = await axios.get(`${base_url}/api/sideboard/${deck_id}`)
+    const response = await axios.get(`${base_url}/sideboard/${deck_id}`)
     return response.data || []
 }
 

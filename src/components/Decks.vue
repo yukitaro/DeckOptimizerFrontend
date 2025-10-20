@@ -17,7 +17,7 @@ import {
 } from '@/utils/deckUtils'
 import MultiDeckComparison from './MultiDeckComparison.vue';
 
-const base_url = "http://localhost:80";
+const base_api_url = import.meta.env.VITE_LARAVEL_API_BASE_URL;
 const router = useRouter()
 const route = useRoute()
 const tab = ref('Deck Import')
@@ -35,7 +35,7 @@ const hoveredCard = ref(null)
 const deckToDelete = ref(null)
 const showConfirmDialog = ref(false)
 
-const { cardsInSelectedDeck, deleteDeck, getCardsForDeck, getDecksFromDB, handleSingleDeckChange, listOfStoredDecks, setDecks } = useDeckData()
+const { cardsInSelectedDeck, deleteDeck, getCardsForDeck, getDecksFromDB, handleSingleDeckChange, isLoadingRecentDecks, listOfStoredDecks, reloadStoredDecks, recentlyImportedDecks, setDecks } = useDeckData()
 
 // Mk. ][
 const deckSearch = ref('')
@@ -101,22 +101,11 @@ watch(showErrorSnackbar, (val) => {
   }
 });
 
-watch(selectedDeck, async (newDeck) => {
-  if (newDeck) {
-    try {
-      await getCardsForDeck(newDeck.deck_id);
-    } catch (error) {
-      console.error("Error fetching deck:", error)
-    }
-  }
-})
-
 watch(tab, async (newTab) => {
   if (newTab === 'Deck Management') {
     await getDecksFromDB();
   }
 });
-
 
 async function importCardsForDeck() {
     try {
@@ -129,7 +118,7 @@ async function importCardsForDeck() {
         });
 
         // Make the deck import request using API route (no CSRF needed)
-        const response = await axios.post(`${base_url}/api/deck`, {
+        const response = await axios.post(`${base_api_url}/deck`, {
             deckName: deckName.value,
             deckDescription: deckDescription.value,
             deckData: deckSomething.value,
@@ -155,6 +144,7 @@ async function importCardsForDeck() {
             externalLink.value = '';
             archetype.value = '';
             console.log('Deck imported successfully!');
+            reloadStoredDecks();
             
             // Refresh the deck list
             //await getDecksFromDB();
@@ -224,20 +214,37 @@ function confirmDelete(deck) {
 const showToast = ref(false);
 const toastMessage = ref('');
 
-// 1️⃣ Computed “active” card: hoveredCard or firstInDeck
 const activeCard = computed(() => {
-  return (
-    hoveredCard.value ||
-    cardsInSelectedDeck.value[0] ||
-    { image_url_to_use: null, name: '' }
-  )
-})
+  // hoveredCard can be a single card object; otherwise return the first card object in the first deck slot
+  return hoveredCard.value
+    || (cardsInSelectedDeck.value[0] && cardsInSelectedDeck.value[0][0])
+    || { image_url_to_use: null, name: '' };
+});
 
-function switchToDeckDisplay(deck) {
-  handleSingleDeckChange(deck)
-  //selectedDeck.value = deck;
-  tab.value = 'Deck Display 2';
+// same for the Deck Management list
+async function switchToDeckDisplay(deck) {
+  try {
+    console.log('switchToDeckDisplay start', deck?.deck_id);
+    const cards = await handleSingleDeckChange(deck);
+    console.log('cards loaded for switchToDeckDisplay:', (cards || []).length);
+    hoveredCard.value = null;
+    tab.value = 'Deck Display 2';
+    console.log('activeCard after load:', activeCard.value);
+  } catch (err) {
+    console.error('switchToDeckDisplay failed', err);
+  }
 }
+
+/* async function openInDeckDisplay(deck) {
+  try {
+    await handleSingleDeckChange(deck);
+    hoveredCard.value = null;
+    tab.value = 'Deck Display 2';
+  } catch (error) {
+    console.error("Error opening deck in deck display:", error);
+  }
+} */
+
 
 // 2️⃣ When the deck’s cards load, clear any stale hover so we default to first card
 watch(cardsInSelectedDeck, (newVal) => {
@@ -287,73 +294,82 @@ onMounted(async () => {
         Errors occurred during import. <span class="view-details">View details</span>
         </div>        
         <v-card class="deck-import-card" v-if="tab==='Deck Import'">
-          <v-card-text class="pa-6">
-            <div class="deck-import-header mb-6">
-              <h2 class="text-h4 font-weight-bold text-primary mb-2">Import New Deck</h2>
-              <p class="text-subtitle-1 text-medium-emphasis">
-                Create a new deck by filling in the details and pasting your decklist
-              </p>
-            </div>
+            <v-card-text class="pa-6">
+              <div class="deck-import-header mb-6">
+                <h2 class="text-h4 font-weight-bold text-primary mb-2">Import New Deck</h2>
+                <p class="text-subtitle-1 text-medium-emphasis">
+                  Create a new deck by filling in the details and pasting your decklist
+                </p>
+              </div>
+              <v-form>
+                <v-row class="deck-import-layout" no-gutters align="start">
+                  <!-- 🧭 Left Column: Deck Info + Decklist Input -->
+                  <v-col cols="12" lg="4" class="deck-info-panel">
+                    <div class="info-panel-content">
+                      <!-- Deck Info Inputs -->
+                      <h3 class="text-h6 font-weight-medium mb-4 text-primary">Deck Information</h3>
+                      
+                      <v-text-field v-model="deckName" label="Deck Name" variant="outlined" density="comfortable" class="deck-input mb-4"
+                        prepend-inner-icon="mdi-cards-variant" required :rules="[v => !!v || 'Deck name is required']" />
 
-            <v-form>
-              <v-row class="deck-import-layout" no-gutters>
-                <!-- Left Panel: Deck Information -->
-                <v-col cols="12" lg="5" class="deck-info-panel">
-                  <div class="info-panel-content">
-                    <h3 class="text-h6 font-weight-medium mb-4 text-primary">Deck Information</h3>
-                    
-                    <v-text-field v-model="deckName" label="Deck Name" variant="outlined" density="comfortable" class="deck-input mb-4"
-                      prepend-inner-icon="mdi-cards-variant" required :rules="[v => !!v || 'Deck name is required']" />
+                      <v-text-field v-model="deckDescription" label="Deck Description" variant="outlined" density="comfortable"
+                        class="deck-input mb-4" prepend-inner-icon="mdi-text" required :rules="[v => !!v || 'Description is required']" />
 
-                    <v-text-field v-model="deckDescription" label="Deck Description" variant="outlined" density="comfortable"
-                      class="deck-input mb-4" prepend-inner-icon="mdi-text" required :rules="[v => !!v || 'Description is required']" />
+                      <v-text-field v-model="externalLink" label="Deck Link (Optional)" variant="outlined" density="comfortable"
+                        class="deck-input mb-6" prepend-inner-icon="mdi-link" hint="Link to deck on external site (MTGGoldfish, Archidekt, etc.)" persistent-hint />
 
-                    <v-text-field v-model="externalLink" label="Deck Link (Optional)" variant="outlined" density="comfortable"
-                      class="deck-input mb-6" prepend-inner-icon="mdi-link" hint="Link to deck on external site (MTGGoldfish, Archidekt, etc.)" persistent-hint />
+                      <v-row>
+                        <v-col cols="6">
+                          <v-text-field v-model="archetype" label="Archetype (Optional)" variant="outlined" density="comfortable"
+                            class="deck-input mb-6" hint="Mono Blue Terror, Rakdos Madness, Tron, etc." persistent-hint />
+                        </v-col>
+                        <v-col cols="6">
+                          <v-text-field v-model="deckFormat" label="Format (Default: Pauper)" variant="outlined" density="comfortable"
+                            class="deck-input mb-6" hint="Pauper, Standard, Commander, etc." persistent-hint />
+                        </v-col>
+                      </v-row>
 
-                    <v-row>
-                      <v-col cols="6">
-                        <v-text-field v-model="archetype" label="Archetype (Optional)" variant="outlined" density="comfortable"
-                          class="deck-input mb-6" hint="Mono Blue Terror, Rakdos Madness, Tron, etc." persistent-hint />
-                      </v-col>
-                      <v-col cols="6">
-                        <v-text-field v-model="deckFormat" label="Format (Default: Pauper)" variant="outlined" density="comfortable"
-                          class="deck-input mb-6" hint="Pauper, Standard, Commander, etc." persistent-hint />
-                      </v-col>
-                    </v-row>
+                      <v-btn @click="importCardsForDeck" type="button" class="import-action-btn" color="primary" size="large"
+                        variant="elevated" block :disabled="!deckName || !deckDescription || !deckSomething" prepend-icon="mdi-upload">
+                        Import Deck
+                      </v-btn>
+                    </div>
+                  </v-col>
+                  <!-- 🧭 Right Column: Recently Imported Decks -->
+                  <v-col cols="12" lg="4" class="recent-decks-panel d-flex justify-end">
+                    <section>
+                      <h2>Recently Imported Decks</h2>
+                      <div v-if="isLoadingRecentDecks">Loading decks…</div>
+                      <ul v-else>
+                        <li v-for="deck in recentlyImportedDecks" :key="deck.id" @click="switchToDeckDisplay(deck)" style="cursor: pointer; color: blue;">
+                          {{ deck.deck_name }} ({{ deck.format }})
+                        </li>
+                      </ul>
+                    </section>
+                  </v-col>
 
-                    <v-btn @click="importCardsForDeck" type="button" class="import-action-btn" color="primary" size="large"
-                      variant="elevated" block :disabled="!deckName || !deckDescription || !deckSomething" prepend-icon="mdi-upload">
-                      Import Deck
-                    </v-btn>
-                  </div>
-                </v-col>
-
-                <!-- Right Panel: Decklist Input -->
-                <v-col cols="12" lg="7" class="decklist-panel">
-                  <div class="decklist-content">
-                    <div class="d-flex align-center justify-space-between mb-4">
+                  <v-col cols="12" lg="4" class="decklist-panel">
+                    <div class="decklist-content mt-8">
                       <h3 class="text-h6 font-weight-medium text-primary">Decklist</h3>
                       <v-chip color="info" variant="outlined" size="small">
                         <v-icon start icon="mdi-information"></v-icon>
                         Ctrl+Enter to Import
                       </v-chip>
+                      
+                      <v-textarea v-model="deckSomething" label="Paste your decklist here" variant="outlined" class="decklist-input"
+                        rows="24" no-resize hint="Format: 4x Lightning Bolt or 4 Lightning Bolt (one card per line)" persistent-hint
+                        @keydown.ctrl.enter.exact.prevent="importCardsForDeck">
+                        <template #prepend-inner>
+                          <div class="decklist-helper">
+                            <v-icon color="primary">mdi-format-list-numbered</v-icon>
+                          </div>
+                        </template>
+                      </v-textarea>
                     </div>
-                    
-                    <v-textarea v-model="deckSomething" label="Paste your decklist here" variant="outlined" class="decklist-input"
-                      rows="24" no-resize hint="Format: 4x Lightning Bolt or 4 Lightning Bolt (one card per line)" persistent-hint
-                      @keydown.ctrl.enter.exact.prevent="importCardsForDeck">
-                      <template #prepend-inner>
-                        <div class="decklist-helper">
-                          <v-icon color="primary">mdi-format-list-numbered</v-icon>
-                        </div>
-                      </template>
-                    </v-textarea>
-                  </div>
-                </v-col>
-              </v-row>
-            </v-form>
-          </v-card-text>
+                  </v-col>
+                </v-row>
+              </v-form>
+            </v-card-text>
         </v-card>
         <v-card v-if="tab === 'Card List Test'" class="pa-4 custom-card-background">
           <!-- 🧠 Deck Display -->
@@ -739,6 +755,46 @@ onMounted(async () => {
 
 .deck-info-panel {
   padding: 0 12px 0 0;
+}
+
+.recent-decks-panel {
+  padding: 0 0 0 12px;
+}
+
+.recent-decks-panel section {
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 12px;
+  padding: 24px;
+  height: 100%;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.recent-decks-panel h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: rgb(var(--v-theme-primary));
+}
+
+.recent-decks-panel ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.recent-decks-panel li {
+  padding: 12px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.recent-decks-panel li:hover {
+  background: rgba(33, 150, 243, 0.1);
+  transform: translateX(4px);
 }
 
 .info-panel-content {

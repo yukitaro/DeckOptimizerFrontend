@@ -7,7 +7,11 @@ import type { Deck, MatrixRow, ShoppingListRow } from '@/utils/types'
 import { useCsvExport, type CsvColumn } from '../composables/useCsvExport'
 import axios from 'axios'
 
-const base_url = "http://localhost:80";
+const base_api_url = import.meta.env.VITE_LARAVEL_API_BASE_URL;
+
+//console.log('Symbol Base URL:', import.meta.env.VITE_SYMBOL_BASE_URL)
+//console.log('All env:', import.meta.env)
+
 
 // 1️⃣ Grab selected decks and their cards
 const {
@@ -137,7 +141,7 @@ async function handleSelectionChange(newSelection: Deck[]) {
   console.log(JSON.stringify(uniqueNames));
   //uniqueCardsInComparison.value = uniqueNames
 
-  const response = await axios.post(`${base_url}/api/inventory/lookup-normalized`, {
+  const response = await axios.post(`${base_api_url}/inventory/lookup-normalized`, {
     card_names: uniqueNames,
     collection_ids: collectionsForInventory.value
   })
@@ -210,7 +214,7 @@ const lockedDeckIndexes = computed(() =>
 function getLockedTotal(card: MatrixRow): number {
   return lockedDeckIndexes.value.reduce((sum: number, i: number) => {
     const deck = decks.value[i]
-    const count = card.deckCounts[`deck_${deck.deck_id}`]
+    const count = card.deckCounts[`deck_${deck.deck_id}_main`] || card.deckCounts[`deck_${deck.deck_id}_side`]
     return typeof count === 'number' ? sum + count : sum
   }, 0)
 }
@@ -337,7 +341,7 @@ const fetchArchetypes = async () => {
 
 const fetchCollections = async () => {
   try {
-    const response = await axios.get(`${base_url}/collections`)
+    const response = await axios.get(`${base_api_url}/collections`)
     listOfCollections.value = response.data.map(c => ({
       id: c.id,
       name: c.collection_name,

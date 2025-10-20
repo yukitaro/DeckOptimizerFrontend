@@ -8,6 +8,9 @@ import Fonts from 'unplugin-fonts/vite'
 import { defineConfig } from 'vite'
 import { fileURLToPath, URL } from 'node:url'
 
+import dotenv from 'dotenv'
+dotenv.config()
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
@@ -32,7 +35,6 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['vuetify'],
   },
-  define: { 'process.env': {} },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('src', import.meta.url)),
@@ -48,7 +50,9 @@ export default defineConfig({
     ],
   },
   server: {
+    host: '0.0.0.0',
     port: 3000,
+    strictPort: true
   },
   css: {
     preprocessorOptions: {

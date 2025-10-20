@@ -1,7 +1,7 @@
 // src/utils/deckComparisonUtils.ts
 import type { Deck, MatrixRow, Card } from './types'
 
-const base_url = "http://localhost:80";
+const base_api_url = import.meta.env.VITE_LARAVEL_API_BASE_URL;
 /**
  * Builds a matrix where each row is a unique card,
  * and `counts[col]` is how many of that card each deck has.
@@ -105,7 +105,7 @@ export async function buildShoppingList(decks: Deck[]): Promise<Card[]> {
 
 
 async function fetchPricesForShoppingList(normalizedIds: number[]): Promise<any[]> {
-  const response = await fetch(`${base_url}/api/fetch-card-prices`, {
+  const response = await fetch(`${base_api_url}/fetch-card-prices`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ card_data_normalized_ids: normalizedIds }),

@@ -13,3 +13,12 @@ export async function fetchImageCoverage() {
   const response = await api.get('/api/dashboard/image-coverage')
   return response.data
 }
+
+export async function fetchMagicSetData(setCode?: string) {
+  const endpoint = setCode
+    ? `/api/magic-set-data/${setCode}`
+    : `/api/magic-set-data`
+
+  const response = await api.get(endpoint)
+  return response.data
+}
