@@ -52,7 +52,19 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
-    strictPort: true
+    strictPort: true,
+    proxy: {
+          // Proxy API calls to your Sail Laravel app
+          '/api': {
+            target: 'http://192.168.4.46:80', // Sail exposes Laravel on http://localhost by default
+            changeOrigin: true,
+            secure: false,
+            // optional: if Laravel is mounted under a subpath, adjust with rewrite
+            // rewrite: (path) => path.replace(/^\/api/, '/api'),
+          },
+          // If you use Sanctum or other non-/api endpoints, add them too:
+          // '/sanctum': { target: 'http://localhost', changeOrigin: true, secure: false },
+        }    
   },
   css: {
     preprocessorOptions: {

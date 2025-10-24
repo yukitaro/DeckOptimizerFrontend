@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:80'
+const baseURL = import.meta.env.VITE_API_BASE_URL ?? ''
 
 export const laravel_api = axios.create({
   baseURL,

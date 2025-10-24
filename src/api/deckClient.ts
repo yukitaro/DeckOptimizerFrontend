@@ -15,4 +15,17 @@ export async function getCardsForDeckAPI(deckId: number) {
   return response
 }
 
+export async function getKnownArchetypes() {
+  const response = await api.get(`/api/decks/known-archetypes`)
+  return response
+}
 
+export async function storeDeck(payload) {
+  const response = await api.post('/api/deck', payload)
+  return response
+}
+
+export async function importDeckDataFromUrl(url: string) {
+  const response = await api.post('/api/deck/import-deck-from-url', { url })
+  return response
+}

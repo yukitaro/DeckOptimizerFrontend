@@ -5,7 +5,6 @@ import Colors from './Colors.vue';
 import SmartCardImage from './SmartCardImage.vue';
 
 import DeckComparison from './DeckComparison.vue';
-import axios from 'axios';
 import { useDeckData } from '@/composables/useDeckData'
 import GroupedCardList from './GroupedCardList.vue';
 import { brokenImageTracker } from '@/utils/brokenImageTracker';
@@ -16,8 +15,9 @@ import {
   mapColorCodeToName,
 } from '@/utils/deckUtils'
 import MultiDeckComparison from './MultiDeckComparison.vue';
+import { getKnownArchetypes, importDeckDataFromUrl, storeDeck } from '@/api/deckClient';
 
-const base_api_url = import.meta.env.VITE_LARAVEL_API_BASE_URL;
+
 const router = useRouter()
 const route = useRoute()
 const tab = ref('Deck Import')
@@ -35,11 +35,10 @@ const hoveredCard = ref(null)
 const deckToDelete = ref(null)
 const showConfirmDialog = ref(false)
 
-const { cardsInSelectedDeck, deleteDeck, getCardsForDeck, getDecksFromDB, handleSingleDeckChange, isLoadingRecentDecks, listOfStoredDecks, reloadStoredDecks, recentlyImportedDecks, setDecks } = useDeckData()
+const { cardsInSelectedDeck, deleteDeck, getDecksFromDB, handleSingleDeckChange, isLoadingRecentDecks, listOfStoredDecks, reloadStoredDecks, recentlyImportedDecks } = useDeckData()
 
 // Mk. ][
 const deckSearch = ref('')
-const selectedDeckMk2 = ref(null)
 
 const filteredDecks = computed(() => {
   const query = deckSearch.value.toLowerCase()
@@ -52,6 +51,16 @@ const filteredDecks = computed(() => {
 
 const tabLabels = ['Deck Import', 'Card List Test', 'Multi Deck Compare', 'Deck Display', 'Deck Display 2', 'Deck Management','Deck Comparison', 'Deck Swapping'];
 const typeHierarchy = ['Creature', 'Artifact', 'Instant', 'Sorcery', 'Enchantment', 'Land'];
+
+const archetypeQuery = ref('');
+const selectedArchetypeId = ref(null);
+const selectedArchetypeName = ref('');
+
+const knownArchetypes = ref([]);
+const suggestionsLimit = 10;
+const showSuggestions = ref(false);
+
+const isScraping = ref(false);
 
 const groupedCards = computed(() => {
   const groups = {};
@@ -118,12 +127,14 @@ async function importCardsForDeck() {
         });
 
         // Make the deck import request using API route (no CSRF needed)
-        const response = await axios.post(`${base_api_url}/deck`, {
+        const response = await storeDeck({
             deckName: deckName.value,
             deckDescription: deckDescription.value,
             deckData: deckSomething.value,
             deckLink: externalLink.value,
-            deckArchetype: archetype.value
+            format: deckFormat.value,
+            deckArchetype: (selectedArchetypeName.value || archetypeQuery.value || null),
+            archetypeId: selectedArchetypeId.value,
         }, { 
             headers: {
                 'Accept': 'application/json',
@@ -235,24 +246,106 @@ async function switchToDeckDisplay(deck) {
   }
 }
 
-/* async function openInDeckDisplay(deck) {
-  try {
-    await handleSingleDeckChange(deck);
-    hoveredCard.value = null;
-    tab.value = 'Deck Display 2';
-  } catch (error) {
-    console.error("Error opening deck in deck display:", error);
-  }
-} */
 
+// Helper to parse mainboard/sideboard into textarea format
+function buildDecklistText(mainboard = [], sideboard = []) {
+  const main = (mainboard || []).map(c => `${c.count} ${c.name}`).join('\n');
+  const side = (sideboard || []).map(c => `${c.count} ${c.name}`).join('\n');
+  return main + (side ? `\n\nSideboard:\n${side}` : '');
+}
+
+async function scrapeUrl() {
+  isScraping.value = true;
+  console.log('Scraping URL:', externalLink.value);
+  try {
+    const response = await importDeckDataFromUrl(externalLink.value);
+    const deckData = response.data;
+    deckName.value = deckData.name;
+    deckDescription.value = deckData.description;
+    deckSomething.value = buildDecklistText(deckData.mainboard, deckData.sideboard);
+    deckFormat.value = deckData.format || '';
+
+    const incomingArchetype = (deckData.archetype || '').trim();
+    console.log('Incoming archetype from scraper:', incomingArchetype);
+    if (incomingArchetype) {
+      // exact
+      let match = knownArchetypes.value.find(a => a.name === incomingArchetype);
+      if (!match) {
+        // case-insensitive contains or format match
+        const low = incomingArchetype.toLowerCase();
+        match = knownArchetypes.value.find(a =>
+          (a.name || '').toLowerCase().includes(low) ||
+          (a.format || '').toLowerCase() === low
+        );
+      }
+
+      if (match) {
+        pickArchetype(match);
+      } else {
+        // not found locally: populate input and set name if freeform allowed
+        archetypeQuery.value = incomingArchetype;
+        selectedArchetypeId.value = null;
+        selectedArchetypeName.value = allowFreeform.value ? incomingArchetype : '';
+        // optional: set a flag to remind user to import archetype if freeform is disabled
+      }
+    } else {
+      // no archetype from scraper
+      selectedArchetypeId.value = null;
+      selectedArchetypeName.value = '';
+    }
+    
+  } finally {
+    isScraping.value = false;
+  }
+}
 
 // 2️⃣ When the deck’s cards load, clear any stale hover so we default to first card
 watch(cardsInSelectedDeck, (newVal) => {
   hoveredCard.value = null
 })
 
+function onArchetypeInput() {
+  if (!archetypeQuery.value) {
+    selectedArchetypeId.value = null;
+    selectedArchetypeName.value = '';
+  }
+  // typing always clears matched id until user picks
+  selectedArchetypeId.value = null;
+  selectedArchetypeName.value = '';
+  showSuggestions.value = true;
+}
+
+// pick an archetype from the suggestions
+function pickArchetype(a) {
+  selectedArchetypeId.value = a.id;
+  selectedArchetypeName.value = a.name;
+  archetypeQuery.value = a.name;
+  showSuggestions.value = false;
+}
+
+async function getKnownArchetypesFromDB() {
+  try {
+    const response = await getKnownArchetypes();
+    console.log('Known archetypes fetched:', response.data);
+    // You can store the known archetypes in a ref if needed
+    knownArchetypes.value = response.data;
+  } catch (error) {
+    console.error('Error fetching known archetypes:', error);
+  }
+}
+
+const visibleSuggestions = computed(() => {
+  const q = archetypeQuery.value.trim().toLowerCase();
+  if (!q) return knownArchetypes.value.slice(0, suggestionsLimit);
+  return knownArchetypes.value
+    .filter(a => a.name.toLowerCase().includes(q) || (a.format || '').toLowerCase().includes(q))
+    .slice(0, suggestionsLimit);
+});
+
+
 onMounted(async () => {
     await getDecksFromDB()
+    await getKnownArchetypesFromDB()
 })
 </script>
 
@@ -317,11 +410,46 @@ onMounted(async () => {
 
                       <v-text-field v-model="externalLink" label="Deck Link (Optional)" variant="outlined" density="comfortable"
                         class="deck-input mb-6" prepend-inner-icon="mdi-link" hint="Link to deck on external site (MTGGoldfish, Archidekt, etc.)" persistent-hint />
-
+                        <v-col cols="3">
+                          <v-btn
+                            :loading="isScraping"
+                            :disabled="!externalLink || isScraping"
+                            color="primary"
+                            block
+                            @click="scrapeUrl">
+                            Scrape
+                          </v-btn>
+                        </v-col>
                       <v-row>
-                        <v-col cols="6">
-                          <v-text-field v-model="archetype" label="Archetype (Optional)" variant="outlined" density="comfortable"
-                            class="deck-input mb-6" hint="Mono Blue Terror, Rakdos Madness, Tron, etc." persistent-hint />
+                        <v-col cols="6" class="position-relative">
+                          <v-text-field
+                            v-model="archetypeQuery"
+                            label="Archetype (Optional)"
+                            variant="outlined"
+                            density="comfortable"
+                            class="deck-input mb-2"
+                            hint="Mono Blue Terror, Rakdos Madness, Tron, etc."
+                            persistent-hint
+                            @input="onArchetypeInput"
+                            @blur="onArchetypeBlur"
+                            :append-outer-icon="selectedArchetypeId ? 'mdi-check' : ''"
+                            autocomplete="off"
+                          />
+                          <v-list v-if="showSuggestions" class="autocomplete-list pa-0" style="max-height:240px; overflow:auto;">
+                            <v-list-item v-for="a in visibleSuggestions" :key="a.id" @mousedown.prevent="pickArchetype(a)">
+                              <v-list-item-content>
+                                <v-list-item-title>{{ a.name }}</v-list-item-title>
+                                <v-list-item-subtitle class="text--secondary">{{ a.format }}</v-list-item-subtitle>
+                              </v-list-item-content>
+                            </v-list-item>
+                            <v-list-item v-if="!visibleSuggestions.length">
+                              <v-list-item-content>
+                                <v-list-item-title class="text--disabled">No matches</v-list-item-title>
+                              </v-list-item-content>
+                            </v-list-item>
+                          </v-list>
+
+                          <v-checkbox v-model="allowFreeform" label="Allow freeform archetype" class="mt-2" />
                         </v-col>
                         <v-col cols="6">
                           <v-text-field v-model="deckFormat" label="Format (Default: Pauper)" variant="outlined" density="comfortable"
