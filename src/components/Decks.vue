@@ -17,7 +17,6 @@ import {
 import MultiDeckComparison from './MultiDeckComparison.vue';
 import { getKnownArchetypes, importDeckDataFromUrl, storeDeck } from '@/api/deckClient';
 
-
 const router = useRouter()
 const route = useRoute()
 const tab = ref('Deck Import')
@@ -34,10 +33,10 @@ const selectedDeck = ref()
 const hoveredCard = ref(null)
 const deckToDelete = ref(null)
 const showConfirmDialog = ref(false)
+const allowFreeform = ref(false)
 
-const { cardsInSelectedDeck, deleteDeck, getDecksFromDB, handleSingleDeckChange, isLoadingRecentDecks, listOfStoredDecks, reloadStoredDecks, recentlyImportedDecks } = useDeckData()
+const { cardsInSelectedDeck, deleteDeck, getDeckArchetypesInDB, getDecksFromDB, handleSingleDeckChange, isLoadingRecentDecks, listOfStoredDecks, reloadStoredDecks, recentlyImportedDecks } = useDeckData()
 
-// Mk. ][
 const deckSearch = ref('')
 
 const filteredDecks = computed(() => {
@@ -62,6 +61,13 @@ const showSuggestions = ref(false);
 
 const isScraping = ref(false);
 
+// Deck Management refs
+const selectedArchetypeFilter = ref('All')
+const listOfArchetypes = ref([])
+const showToast = ref(false);
+const toastMessage = ref('');
+
+// Grouped cards for deck display tabs
 const groupedCards = computed(() => {
   const groups = {};
 
@@ -93,6 +99,64 @@ const groupedCards = computed(() => {
   return groups;
 });
 
+// Deck Management computed properties
+const filteredDecksForManagement = computed(() => {
+  const query = deckSearch.value?.toLowerCase() || ''
+  const archetypeFilter = selectedArchetypeFilter.value?.toLowerCase()
+  
+  return listOfStoredDecks.value.filter(deck => {
+    const matchesSearch = !query || 
+      deck.deck_name?.toLowerCase().includes(query) ||
+      deck.description?.toLowerCase().includes(query)
+    
+    const matchesArchetype = !archetypeFilter || 
+      archetypeFilter === 'all' ||
+      (deck.archetype?.toLowerCase() || 'uncategorized') === archetypeFilter
+    
+    return matchesSearch && matchesArchetype
+  })
+})
+
+const groupedDecks = computed(() => {
+  const groups = {};
+
+  filteredDecksForManagement.value.forEach(deck => {
+    const raw = deck.archetype || 'Uncategorized';
+    const normalized = raw.toLowerCase().trim().replace(/\s+/g, ' ') || 'uncategorized';
+
+    if (!groups[normalized]) {
+      groups[normalized] = {
+        name: raw, // preserve original casing from first match
+        decks: []
+      };
+    }
+
+    groups[normalized].decks.push(deck);
+  });
+
+  return Object.values(groups).sort((a, b) => {
+    if (a.name === 'Uncategorized') return 1;
+    if (b.name === 'Uncategorized') return -1;
+    return a.name.localeCompare(b.name);
+  });
+});
+
+
+const uniqueFormats = computed(() => {
+  const formats = new Set(
+    listOfStoredDecks.value
+      .map(d => d.format)
+      .filter(f => f && f !== '')
+  )
+  return Array.from(formats)
+})
+
+const totalCards = computed(() => {
+  return listOfStoredDecks.value.reduce((sum, deck) => 
+    sum + (deck.num_cards || 0), 0
+  )
+})
+
 const search = computed({
   get() {
     return route.query.search ?? ''
@@ -102,6 +166,14 @@ const search = computed({
   }
 })
 
+const activeCard = computed(() => {
+  // hoveredCard can be a single card object; otherwise return the first card object in the first deck slot
+  return hoveredCard.value
+    || (cardsInSelectedDeck.value[0] && cardsInSelectedDeck.value[0][0])
+    || { image_url_to_use: null, name: '' };
+});
+
+// Watchers
 watch(showErrorSnackbar, (val) => {
   if (val) {
     setTimeout(() => {
@@ -112,10 +184,23 @@ watch(showErrorSnackbar, (val) => {
 
 watch(tab, async (newTab) => {
   if (newTab === 'Deck Management') {
-    await getDecksFromDB();
+    await getDecksFromDB()
+    // Fetch archetypes
+    try {
+      const archetypes = await getDeckArchetypesInDB()
+      listOfArchetypes.value = archetypes
+    } catch (error) {
+      console.error('Error fetching archetypes:', error)
+    }
   }
 });
 
+// 2️⃣ When the deck's cards load, clear any stale hover so we default to first card
+watch(cardsInSelectedDeck, (newVal) => {
+  hoveredCard.value = null
+})
+
+// Functions
 async function importCardsForDeck() {
     try {
         console.log('Importing deck...', {
@@ -126,7 +211,6 @@ async function importCardsForDeck() {
             dataLength: deckSomething.value.length
         });
 
-        // Make the deck import request using API route (no CSRF needed)
         const response = await storeDeck({
             deckName: deckName.value,
             deckDescription: deckDescription.value,
@@ -222,16 +306,6 @@ function confirmDelete(deck) {
   showConfirmDialog.value = true;
 }
 
-const showToast = ref(false);
-const toastMessage = ref('');
-
-const activeCard = computed(() => {
-  // hoveredCard can be a single card object; otherwise return the first card object in the first deck slot
-  return hoveredCard.value
-    || (cardsInSelectedDeck.value[0] && cardsInSelectedDeck.value[0][0])
-    || { image_url_to_use: null, name: '' };
-});
-
 // same for the Deck Management list
 async function switchToDeckDisplay(deck) {
   try {
@@ -245,7 +319,6 @@ async function switchToDeckDisplay(deck) {
     console.error('switchToDeckDisplay failed', err);
   }
 }
-
 
 // Helper to parse mainboard/sideboard into textarea format
 function buildDecklistText(mainboard = [], sideboard = []) {
@@ -299,11 +372,6 @@ async function scrapeUrl() {
   }
 }
 
-// 2️⃣ When the deck’s cards load, clear any stale hover so we default to first card
-watch(cardsInSelectedDeck, (newVal) => {
-  hoveredCard.value = null
-})
-
 function onArchetypeInput() {
   if (!archetypeQuery.value) {
     selectedArchetypeId.value = null;
@@ -313,6 +381,13 @@ function onArchetypeInput() {
   selectedArchetypeId.value = null;
   selectedArchetypeName.value = '';
   showSuggestions.value = true;
+}
+
+function onArchetypeBlur() {
+  // Delay to allow click events to fire
+  setTimeout(() => {
+    showSuggestions.value = false;
+  }, 200);
 }
 
 // pick an archetype from the suggestions
@@ -342,10 +417,10 @@ const visibleSuggestions = computed(() => {
     .slice(0, suggestionsLimit);
 });
 
-
 onMounted(async () => {
     await getDecksFromDB()
     await getKnownArchetypesFromDB()
+    await getDeckArchetypesInDB()
 })
 </script>
 
@@ -683,19 +758,226 @@ onMounted(async () => {
     </div>
   </div>
 </v-card>
-<v-card v-if="tab === 'Deck Management'" class="pa-4 custom-card-background">
+<v-card v-if="tab === 'Deck Management'" class="pa-6 custom-card-background">
   <v-snackbar v-model="showToast" :timeout="3000">
     {{ toastMessage }}
   </v-snackbar>
-  <v-list>
-    <v-list-item v-for="(deck, index) in listOfStoredDecks" :key="deck.deck_id" @click="switchToDeckDisplay(deck)" style="cursor:pointer;">
-        <v-list-item-title>{{ deck.deck_name }}</v-list-item-title>
-        <v-list-item-subtitle v-if="deck.description">{{ deck.description }}</v-list-item-subtitle>
-        {{ deck.archetype }}
-        <v-icon class="ml-auto" @click.stop="confirmDelete(deck)" title="Delete Deck">mdi-delete</v-icon>
-      <v-divider v-if="index < listOfStoredDecks.length - 1" class="my-2"></v-divider>
-    </v-list-item>
-  </v-list>
+
+  <!-- Header Section -->
+  <div class="deck-management-header mb-6">
+    <div class="d-flex align-center mb-4">
+      <v-icon size="40" color="primary" class="mr-3">mdi-cards-variant</v-icon>
+      <div>
+        <h2 class="text-h4 font-weight-bold">Deck Library</h2>
+        <p class="text-subtitle-1 text-medium-emphasis">Manage and organize your deck collection</p>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <v-row>
+      <v-col cols="12" md="6">
+        <v-text-field
+          v-model="deckSearch"
+          label="Search decks"
+          placeholder="Search by name or description..."
+          prepend-inner-icon="mdi-magnify"
+          variant="outlined"
+          clearable
+          density="comfortable"
+        />
+      </v-col>
+      <v-col cols="12" md="6">
+        <v-select
+          v-model="selectedArchetypeFilter"
+          :items="['All', ...listOfArchetypes]"
+          label="Filter by Archetype"
+          prepend-inner-icon="mdi-filter-variant"
+          variant="outlined"
+          clearable
+          density="comfortable"
+        />
+      </v-col>
+    </v-row>
+  </div>
+
+  <!-- Deck Stats -->
+  <v-row class="mb-4">
+    <v-col cols="6" sm="3">
+      <v-card color="primary" variant="tonal">
+        <v-card-text>
+          <div class="d-flex align-center justify-space-between">
+            <div>
+              <div class="text-h5 font-weight-bold">{{ filteredDecksForManagement.length }}</div>
+              <div class="text-caption">Total Decks</div>
+            </div>
+            <v-icon size="40" color="primary">mdi-cards-playing</v-icon>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-col>
+    <v-col cols="6" sm="3">
+      <v-card color="secondary" variant="tonal">
+        <v-card-text>
+          <div class="d-flex align-center justify-space-between">
+            <div>
+              <div class="text-h5 font-weight-bold">{{ listOfArchetypes.length }}</div>
+              <div class="text-caption">Archetypes</div>
+            </div>
+            <v-icon size="40" color="secondary">mdi-shape</v-icon>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-col>
+    <v-col cols="6" sm="3">
+      <v-card color="success" variant="tonal">
+        <v-card-text>
+          <div class="d-flex align-center justify-space-between">
+            <div>
+              <div class="text-h5 font-weight-bold">{{ uniqueFormats.length }}</div>
+              <div class="text-caption">Formats</div>
+            </div>
+            <v-icon size="40" color="success">mdi-format-list-bulleted</v-icon>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-col>
+    <v-col cols="6" sm="3">
+      <v-card color="info" variant="tonal">
+        <v-card-text>
+          <div class="d-flex align-center justify-space-between">
+            <div>
+              <div class="text-h5 font-weight-bold">{{ totalCards }}</div>
+              <div class="text-caption">Total Cards</div>
+            </div>
+            <v-icon size="40" color="info">mdi-cards-outline</v-icon>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-col>
+  </v-row>
+
+  <!-- Grouped Deck Display -->
+  <div v-if="filteredDecksForManagement.length > 0">
+    <template v-for="archetype in groupedDecks" :key="archetype.name">
+      <div v-if="archetype.decks.length > 0" class="archetype-section mb-6">
+        <!-- Archetype Banner -->
+        <div class="archetype-banner mb-3">
+          <v-icon icon="mdi-shape" class="mr-2"></v-icon>
+          {{ archetype.name }}
+          <v-chip 
+            color="primary" 
+            size="small" 
+            variant="outlined"
+            class="ml-2"
+          >
+            {{ archetype.decks.length }}
+          </v-chip>
+        </div>
+
+        <!-- Deck Grid -->
+        <v-row>
+          <v-col
+            v-for="deck in archetype.decks"
+            :key="deck.deck_id"
+            cols="12"
+            sm="6"
+            md="4"
+            lg="3"
+          >
+            <v-card
+              hover
+              class="deck-card h-100"
+              @click="switchToDeckDisplay(deck)"
+            >
+              <v-card-title class="d-flex align-center pb-2">
+                <v-icon class="mr-2" color="primary">mdi-cards</v-icon>
+                <span class="text-truncate">{{ deck.deck_name }}</span>
+              </v-card-title>
+
+              <v-card-text>
+                <div class="deck-meta mb-3">
+                  <v-chip
+                    v-if="deck.format"
+                    size="small"
+                    color="secondary"
+                    variant="tonal"
+                    class="mr-2 mb-2"
+                  >
+                    <v-icon start size="16">mdi-format-list-bulleted</v-icon>
+                    {{ deck.format }}
+                  </v-chip>
+                  
+                  <v-chip
+                    v-if="deck.num_cards"
+                    size="small"
+                    color="info"
+                    variant="tonal"
+                    class="mb-2"
+                  >
+                    <v-icon start size="16">mdi-cards-outline</v-icon>
+                    {{ deck.num_cards }} cards
+                  </v-chip>
+                </div>
+
+                <p v-if="deck.description" class="text-body-2 text-medium-emphasis deck-description">
+                  {{ deck.description }}
+                </p>
+                <p v-else class="text-body-2 text-disabled">
+                  No description provided
+                </p>
+              </v-card-text>
+
+              <v-card-actions class="pt-0">
+                <v-btn
+                  size="small"
+                  variant="text"
+                  color="primary"
+                  @click.stop="switchToDeckDisplay(deck)"
+                >
+                  <v-icon start>mdi-eye</v-icon>
+                  View
+                </v-btn>
+                
+                <v-spacer />
+                
+                <v-btn
+                  size="small"
+                  variant="text"
+                  color="error"
+                  @click.stop="confirmDelete(deck)"
+                  icon="mdi-delete"
+                />
+              </v-card-actions>
+            </v-card>
+          </v-col>
+        </v-row>
+      </div>
+    </template>
+  </div>
+
+  <!-- Empty State -->
+  <v-card v-else class="empty-state-card">
+    <v-card-text class="text-center pa-8">
+      <v-icon icon="mdi-cards-variant" size="80" color="grey-lighten-1"></v-icon>
+      <h3 class="text-h5 mt-4 mb-2">No Decks Found</h3>
+      <p class="text-body-1 text-grey mb-4">
+        {{ deckSearch || selectedArchetypeFilter ? 
+          'Try adjusting your filters to see more results.' : 
+          'Start by importing your first deck!' 
+        }}
+      </p>
+      <v-btn
+        v-if="!deckSearch && !selectedArchetypeFilter"
+        color="primary"
+        variant="elevated"
+        size="large"
+        @click="tab = 'Deck Import'"
+      >
+        <v-icon start>mdi-plus</v-icon>
+        Import Deck
+      </v-btn>
+    </v-card-text>
+  </v-card>
 </v-card>
 <v-dialog v-model="showConfirmDialog" max-width="400">
   <v-card>
@@ -1058,4 +1340,64 @@ onMounted(async () => {
   padding-left: 16px;
 }
 
+/* Add to your existing <style scoped> section */
+.deck-management-header {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
+  backdrop-filter: blur(20px);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.archetype-section {
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  padding-top: 16px;
+}
+
+.archetype-banner {
+  background: linear-gradient(135deg, rgba(103, 58, 183, 0.1) 0%, rgba(103, 58, 183, 0.05) 100%);
+  color: rgba(103, 58, 183, 1);
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(103, 58, 183, 0.2);
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+}
+
+.deck-card {
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.deck-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.deck-description {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.4;
+  min-height: 2.8em;
+}
+
+.deck-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.empty-state-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
+  backdrop-filter: blur(20px);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
 </style>

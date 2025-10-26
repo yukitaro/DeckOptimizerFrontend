@@ -22,3 +22,24 @@ export async function fetchMagicSetData(setCode?: string) {
   const response = await api.get(endpoint)
   return response.data
 }
+
+export async function fetchCardDataNormalizedCoverage(cardSlug: string) {
+/*   const endpoint = setCode
+    ? `/api/dashboard/card{id}/metadata`
+    : `/api/dashboard/card-data-normalized-coverage`
+ */
+  const response = await api.get(`/api/dashboard/card/${cardSlug}/metadata`)
+  return response.data
+}
+
+export async function fetchCardDataNormalizedCoverageWithSlug(set: string, cardSlug: string, number: string) {
+/*   const endpoint = setCode
+    ? `/api/dashboard/card{id}/metadata`
+    : `/api/dashboard/card-data-normalized-coverage`
+ */
+  const response = await api.get(`/api/dashboard/card/${set}/${cardSlug}/${number}`)
+  return response.data
+}
+
+
+
