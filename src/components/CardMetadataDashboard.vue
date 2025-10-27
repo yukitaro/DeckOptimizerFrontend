@@ -182,6 +182,14 @@ const averagePrice = computed(() => {
   return `$${avg.toFixed(2)}`;
 });
 
+function normalizeCardSearch(input) {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gi, ' ')  // Replace all non-alphanumeric with space
+    .trim()                        // Remove leading/trailing whitespace
+    .replace(/\s+/g, ' ');         // Collapse multiple spaces
+}
+
 const searchCards = async () => {
   if (!searchText.value.trim()) return;
 
@@ -192,11 +200,7 @@ const searchCards = async () => {
 
   try {
     let searchQuery = searchText.value.trim();
-    // For DFC cards, search by front face only
-    if (searchQuery.includes(' // ')) {
-      searchQuery = searchQuery.split(' // ')[0];
-    }
-    const { data } = await getCardData(searchQuery);
+    const { data } = await getCardData(normalizeCardSearch(searchQuery));
     
     // Deduplicate DFC cards (they might come back with both faces)
     const uniqueCards = new Map();
@@ -735,6 +739,12 @@ onMounted(async () => {
               density="comfortable"
               class="elevation-0"
             >
+              <template v-slot:item.deck_name="{ item }">
+                <span class="font-weight-medium">
+                {{ item.deck_name }}
+                <v-btn :to="`/decks/${item.deck_id}`" icon="mdi-open-in-new" variant="text" />
+                </span>
+              </template>
               <template v-slot:item.format="{ item }">
                 <v-chip size="small" color="primary" variant="tonal">
                   {{ item.format }}

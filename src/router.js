@@ -14,6 +14,7 @@ import CardMetadataDashboard from './components/CardMetadataDashboard.vue'
 const routes = [
     { path: '/', component: CardListingVuetify },
     { path: '/decks', component: Decks },
+    { path: '/decks/:deckId?', name: 'Decks', component: Decks, props: true },
     { path: '/collections', component: Collections },
     { path: '/settings', component: Settings },
     { path: '/adminconsole', component: AdminConsole, meta: { requiresAuth: true } },

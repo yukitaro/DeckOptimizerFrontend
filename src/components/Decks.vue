@@ -19,6 +19,7 @@ import { getKnownArchetypes, importDeckDataFromUrl, storeDeck } from '@/api/deck
 
 const router = useRouter()
 const route = useRoute()
+const isReady = ref(false)
 const tab = ref('Deck Import')
 const deckName = ref('')
 const deckDescription = ref('')
@@ -157,14 +158,16 @@ const totalCards = computed(() => {
   )
 })
 
-const search = computed({
+
+// hmm, not sure what this was for, but it seems to be unused..
+/* const search = computed({
   get() {
     return route.query.search ?? ''
   },
   set(search) {
     router.replace({ query: { search } })
   }
-})
+}) */
 
 const activeCard = computed(() => {
   // hoveredCard can be a single card object; otherwise return the first card object in the first deck slot
@@ -174,6 +177,19 @@ const activeCard = computed(() => {
 });
 
 // Watchers
+watch(  [() => route.params.deckId, isReady],
+  async ([deckId, ready]) => {
+    if (deckId && ready) {
+      const deck = listOfStoredDecks.value.find(d => d.deck_id === Number(deckId));
+      if (deck) {
+        await switchToDeckDisplay(deck);
+      } else {
+        console.log('Error, deck not found for id from route:', deckId);
+      }
+    }
+  },  { immediate: true }
+)
+
 watch(showErrorSnackbar, (val) => {
   if (val) {
     setTimeout(() => {
@@ -421,6 +437,7 @@ onMounted(async () => {
     await getDecksFromDB()
     await getKnownArchetypesFromDB()
     await getDeckArchetypesInDB()
+    isReady.value = true
 })
 </script>
 
