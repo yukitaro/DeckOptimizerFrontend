@@ -10,6 +10,11 @@ import ImageCoverageDashboard from './components/ImageCoverageDashboard.vue'
 import ImportCandidatesDashboard from './components/ImportCandidatesDashboard.vue'
 import MtgSetDataDashboard from './components/MtgSetDataDashboard.vue'
 import CardMetadataDashboard from './components/CardMetadataDashboard.vue'
+import Login from './components/Login.vue'
+
+import { useAuth } from '@/composables/useAuth'
+
+const { user, fetchUser } = useAuth()
 
 const routes = [
     { path: '/', component: CardListingVuetify },
@@ -23,11 +28,27 @@ const routes = [
     { path: '/importcandidates', component: ImportCandidatesDashboard, meta: { requiresAuth: true } },
     { path: '/magicsetdata', component: MtgSetDataDashboard, meta: { requiresAuth: true } },
     { path: '/cardmetadata', component: CardMetadataDashboard, meta: { requiresAuth: true } },
+    { path: '/login', component: Login }
 ]
 
 const router = createRouter({
     history: createMemoryHistory(),
     routes
 })
+
+const shouldCallBackend = Boolean(import.meta.env.VITE_ENABLE_AUTH === 'true');
+
+router.beforeEach(async (to, from, next) => {
+  const { user, fetchUser } = useAuth()
+
+  if (shouldCallBackend && !user.value) await fetchUser()
+
+  if (to.meta.requiresAuth && !user.value) {
+    return next('/login') // redirect to login
+  }
+
+  next()
+})
+
 
 export default router

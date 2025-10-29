@@ -5,15 +5,10 @@ import { useDeckData } from '@/composables/useDeckData'
 import { buildComparisonMatrix, buildShoppingList } from '@/utils/deckComparisonUtils'
 import type { Deck, MatrixRow, ShoppingListRow } from '@/utils/types'
 import { useCsvExport, type CsvColumn } from '../composables/useCsvExport'
-import axios from 'axios'
+import { retrieveCollections, retrieveNormalizedInventory } from '@/api/collection'
 
 const base_api_url = import.meta.env.VITE_LARAVEL_API_BASE_URL;
 
-//console.log('Symbol Base URL:', import.meta.env.VITE_SYMBOL_BASE_URL)
-//console.log('All env:', import.meta.env)
-
-
-// 1️⃣ Grab selected decks and their cards
 const {
   cardsInSelectedDeck,
   cardsInSideboardOfSelectedDeck,
@@ -31,7 +26,13 @@ const listOfArchetypes = ref<string[]>([])
 const selectedArchetype = ref('')
 
 const listOfCollections = ref([])
-const collectionsForInventory = ref<number[]>([15]) // Default collection ID
+interface Collection {
+  id: number;
+  name: string;
+  description: string;
+}
+const collectionsForInventory = ref<Collection[]>([])
+const collectionKey = ref(0)
 const normalizedInventory = ref<Record<string, any>>({}) // Inventory data
 
 // 2️⃣ Define type groups and selection
@@ -141,9 +142,11 @@ async function handleSelectionChange(newSelection: Deck[]) {
   console.log(JSON.stringify(uniqueNames));
   //uniqueCardsInComparison.value = uniqueNames
 
-  const response = await axios.post(`${base_api_url}/inventory/lookup-normalized`, {
+  const collectionIds = collectionsForInventory.value.map(c => c.id);
+
+  const response = await retrieveNormalizedInventory({
     card_names: uniqueNames,
-    collection_ids: collectionsForInventory.value
+    collection_ids: collectionIds // Pass the extracted IDs
   })
 
   normalizedInventory.value = Object.fromEntries(
@@ -341,18 +344,27 @@ const fetchArchetypes = async () => {
 
 const fetchCollections = async () => {
   try {
-    const response = await axios.get(`${base_api_url}/collections`)
+    const response = await retrieveCollections()
     listOfCollections.value = response.data.map(c => ({
       id: c.id,
       name: c.collection_name,
       description: c.description
     }))
+
+    // ✅ Set default to first available collection if none selected
+    if (collectionsForInventory.value.length === 0 && listOfCollections.value.length > 0) {
+      // 💡 FIX: Push the full object, since return-object is true
+      collectionsForInventory.value = [listOfCollections.value[0]] 
+    }
+    collectionKey.value++;
   } catch (error) {
     console.error('Error fetching collections:', error)
   }
 }
 
 onMounted(() => {
+  console.log('🔥 collectionsForInventory on mount:', collectionsForInventory.value)
+  console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥:', collectionsForInventory.value)
   fetchArchetypes()
   fetchCollections()
 })
@@ -433,6 +445,7 @@ watch(decksFilteredByArchetype, (val) => {
               clearable
               variant="outlined"
               return-object
+              :key="collectionKey"
             >
               <template v-slot:item="{ item, props }">
                 <v-list-item v-bind="props">
