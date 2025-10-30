@@ -29,3 +29,19 @@ export async function importDeckDataFromUrl(url: string) {
   const response = await api.post('/api/deck/import-deck-from-url', { url })
   return response
 }
+
+export async function retrieveCardsForDeck(deck_id: any) {
+    const response = await api.post(`/api/cardsInDeck/${deck_id}`)
+    return response.data || []
+}
+
+export async function retrieveCardsForDeckByBoardGroup(deck_id: any, board_groups: string) {
+    const response = await api.post(`/api/cardsInDeck/${deck_id}/boardgroups/${board_groups}`)
+    return response.data || []
+}
+
+export async function retrieveSideboardForDeck(deck_id: any) {
+    const response = await api.post(`/api/sideboard/${deck_id}`)
+    return response.data || []
+}
+

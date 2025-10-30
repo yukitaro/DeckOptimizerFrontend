@@ -1,9 +1,8 @@
 import { Deck, Card } from '@/utils/types'
 import { nextTick, ref, watch  } from 'vue'
 import axios from 'axios'
-import { retrieveCardsForDeck, retrieveCardsForDeckByBoardGroup, retrieveSideboardForDeck } from '@/utils/deckUtils';
 
-import { getAllDeckArchetypes, getCardsForDeckAPI, getStoredDecks } from '@/api/deckClient';
+import { getAllDeckArchetypes, getCardsForDeckAPI, getStoredDecks, retrieveCardsForDeck, retrieveCardsForDeckByBoardGroup, retrieveSideboardForDeck } from '@/api/deckClient';
 
 const base_url = import.meta.env.VITE_LARAVEL_API_BASE_URL;
 
