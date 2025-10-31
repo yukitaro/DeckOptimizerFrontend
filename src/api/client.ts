@@ -2,12 +2,14 @@ import axios from 'axios'
 
 let baseURL = import.meta.env.VITE_API_BASE_URL // default fallback
 
-const origin = window.location.origin
+const host = typeof window !== "undefined" ? window.location.hostname : "";
 
-if (origin.includes('192.168.4.161')) {
+if (host.includes('192.168.4.161')) {
   baseURL = import.meta.env.VITE_API_BASE_URL
-} else if (origin.includes('98.164.213.139')) {
+} else if (host.includes('98.164.213.139')) {
   baseURL = import.meta.env.VITE_API_BASE_URL_WAN
+} else if (host === "deck.thekiharas.com" || host.endsWith(".thekiharas.com")) {
+  baseURL = import.meta.env.VITE_API_BASE
 } else {
   baseURL = import.meta.env.VITE_API_BASE_URL_WAN
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, toRaw, watch, watchEffect } from 'vue'
 import axios from 'axios'
+import { createNewCollection, deleteCollectionFromServer, importCollectionFromExternalSource, pollServerForImportStatus, retrieveCollections, viewCardsInCollection } from '@/api/collection';
 
 const base_api_url = import.meta.env.VITE_LARAVEL_API_BASE_URL;
 
@@ -66,19 +67,19 @@ const submitImport = async () => {
     formData.append('collection_id', selectedCollection.value)
     formData.append('mode', selectedMode.value)
 
-    const response = await axios.post(`${base_api_url}/collections/import-csv`, formData)
+    const response = await importCollectionFromExternalSource(formData)
     //importSummary.value = response.data.summary || 'Import completed successfully.'
     pollImportStatus(selectedCollection.value)
 }
 
 const pollImportStatus = async (collectionId) => {
   const interval = setInterval(async () => {
-    const { data } = await axios.get(`${base_api_url}/collections/${collectionId}/import-status`)
+    const { data } = await pollServerForImportStatus(collectionId)
     if (data.status === 'complete') {
       clearInterval(interval)
       toastMessage.value = 'Import complete!'
       isImporting.value = false
-      await fetchCollectionCards(collectionId)
+      //await fetchCollectionCards(collectionId)
     } else if (data.status === 'failed') {
       clearInterval(interval)
       toastMessage.value = 'Import failed. Check logs for details.'
@@ -90,7 +91,7 @@ const createCollection = async () => {
     if (!newCollectionFields.name.trim()) return
     
     try {
-        const response = await axios.post(`${base_api_url}/collections/create`, {
+        const response = await createNewCollection({
             name: newCollectionFields.name,
             description: newCollectionFields.description
         })
@@ -114,9 +115,7 @@ const viewCollection = async (collectionId) => {
     currentPage.value = 1
     hasMore.value = true
     try {
-        const response = await axios.get(`${base_api_url}/collections/${collectionId}/cards`, {
-            params: queryParams.value
-        })
+        const response = await viewCardsInCollection(collectionId)
 
         const meta = response.data.meta
         hasMore.value = meta.current_page < meta.last_page
@@ -146,7 +145,7 @@ const viewCollection = async (collectionId) => {
 
 const fetchCollections = async () => {
     try {
-        const response = await axios.get(`${base_api_url}/collections`)
+        const response = await retrieveCollections()
         listOfCollections.value = response.data
     } catch (error) {
         console.error('Error fetching collections:', error)
@@ -266,19 +265,12 @@ watch(queryParams, async () => {
 })
 
 async function refreshFilteredCards() {
-  const response = await axios.get(`${base_api_url}/collections/${selectedCollection.value}/cards`, {
-    params: queryParams.value
-/*     params: {
-      page: 1,
-      colorFilters: activeColors.value.join(','),
-      sort: sortKey.value
-      // include other filters like search, rarity, etc.
-    } */
-  })
+  const response = await viewCardsInCollection(selectedCollection.value, queryParams.value)
   cardsInCollection.value = response.data.data
   //currentPage.value = 2
   hasMore.value = response.data.meta.current_page < response.data.meta.last_page
 }
+
 
 const loadMoreCards = async () => {
   if (!hasMore.value || isLoading.value) return
@@ -286,7 +278,7 @@ const loadMoreCards = async () => {
   isLoading.value = true
   try {
     currentPage.value++
-    const response = await axios.get(`${base_api_url}/collections/${selectedCollection.value}/cards`, {
+    const response = await viewCardsInCollection(selectedCollection.value, {
         params: queryParams.value
     })
     const newCards = response.data.data || []
@@ -337,7 +329,7 @@ function confirmDelete(collection) {
 
 async function deleteCollection() {
   try {
-    await axios.delete(`${base_api_url}/collections/${collectionToDelete.value.id}`);
+    await deleteCollectionFromServer(collectionToDelete.value.id);
     listOfCollections.value = listOfCollections.value.filter(
       c => c.id !== collectionToDelete.value.id
     );
