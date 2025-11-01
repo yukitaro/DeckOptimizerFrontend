@@ -5,7 +5,7 @@ export async function getCSRF() {
 }
 
 export async function loginAPI(email: string, password: string) {
-    return await api.post('/login', { email, password });
+    return await api.post('/api/login', { email, password });
 }
 
 export async function logoutAPI() {

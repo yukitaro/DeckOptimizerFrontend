@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import { fetchUserAPI, getCSRF, loginAPI, logoutAPI,  } from '@/api/auth';
+import { laravel_api as api } from '@/api/client';
 
 
 const user = ref(null)
@@ -13,7 +14,9 @@ export function useAuth() {
 
   async function logout() {
     await logoutAPI()
-    user.value = null
+    delete api.defaults.headers.common.Authorization
+    localStorage.removeItem('authToken')
+    user.value = null    
   }
 
   async function fetchUser() {
@@ -25,5 +28,9 @@ export function useAuth() {
     }
   }
 
-  return { user, login, logout, fetchUser }
+  function setUser(newUser) {
+    user.value = newUser
+  }
+
+  return { user, login, logout, fetchUser, setUser }
 }

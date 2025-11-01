@@ -1,4 +1,4 @@
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { createWebHistory, createRouter } from 'vue-router'
 
 import CardListingVuetify from './components/CardListingVuetify.vue'
 import Decks from './components/Decks.vue'
@@ -32,16 +32,21 @@ const routes = [
 ]
 
 const router = createRouter({
-    history: createMemoryHistory(),
+    history: createWebHistory(import.meta.env.BASE_URL),
     routes
 })
+
 
 const shouldCallBackend = Boolean(import.meta.env.VITE_ENABLE_AUTH === 'true');
 
 router.beforeEach(async (to, from, next) => {
+  if (!shouldCallBackend) {
+    return next()
+  }
+
   const { user, fetchUser } = useAuth()
 
-  if (shouldCallBackend && !user.value) await fetchUser()
+  if (!user.value) await fetchUser()
 
   if (to.meta.requiresAuth && !user.value) {
     return next('/login') // redirect to login
