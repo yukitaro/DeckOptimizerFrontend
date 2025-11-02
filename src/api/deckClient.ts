@@ -1,4 +1,5 @@
 import { laravel_api as api } from './client'
+import { getCSRF } from '@/api/auth';
 
 export async function getStoredDecks( params = {}) {
   const response = await api.get(`/api/decks`, { params })
@@ -45,3 +46,7 @@ export async function retrieveSideboardForDeck(deck_id: any) {
     return response.data || []
 }
 
+export async function deleteDeckById(deck_id: number) {
+    const response = await api.delete(`/api/decks/${deck_id}`)
+    return response.data || []
+}

@@ -1,8 +1,7 @@
 import { Deck, Card } from '@/utils/types'
 import { nextTick, ref, watch  } from 'vue'
-import axios from 'axios'
 
-import { getAllDeckArchetypes, getCardsForDeckAPI, getStoredDecks, retrieveCardsForDeck, retrieveCardsForDeckByBoardGroup, retrieveSideboardForDeck } from '@/api/deckClient';
+import { deleteDeckById, getAllDeckArchetypes, getCardsForDeckAPI, getStoredDecks, retrieveCardsForDeck, retrieveCardsForDeckByBoardGroup, retrieveSideboardForDeck } from '@/api/deckClient';
 
 const base_url = import.meta.env.VITE_LARAVEL_API_BASE_URL;
 
@@ -134,7 +133,7 @@ export function useDeckData() {
   }
 
   async function deleteDeck(deckId: number) {
-    await axios.delete(`${base_url}/decks/${deckId}`);
+    await deleteDeckById(deckId)
   }
 
   function resetCardsForSelectedDecks(newDecks: Deck[]) {

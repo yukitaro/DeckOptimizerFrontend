@@ -16,6 +16,7 @@ import {
 } from '@/utils/deckUtils'
 import MultiDeckComparison from './MultiDeckComparison.vue';
 import { getKnownArchetypes, importDeckDataFromUrl, storeDeck } from '@/api/deckClient';
+import { format } from 'date-fns';
 
 const router = useRouter()
 const route = useRoute()
@@ -35,6 +36,7 @@ const hoveredCard = ref(null)
 const deckToDelete = ref(null)
 const showConfirmDialog = ref(false)
 const allowFreeform = ref(false)
+const deckVisibility = ref('Public');
 
 const { cardsInSelectedDeck, deleteDeck, getDeckArchetypesInDB, getDecksFromDB, handleSingleDeckChange, isLoadingRecentDecks, listOfStoredDecks, reloadStoredDecks, recentlyImportedDecks } = useDeckData()
 
@@ -235,6 +237,7 @@ async function importCardsForDeck() {
             format: deckFormat.value,
             deckArchetype: (selectedArchetypeName.value || archetypeQuery.value || null),
             archetypeId: selectedArchetypeId.value,
+            deckVisibility: deckVisibility.value
         }, { 
             headers: {
                 'Accept': 'application/json',
@@ -254,6 +257,8 @@ async function importCardsForDeck() {
             deckSomething.value = '';
             externalLink.value = '';
             archetype.value = '';
+            selectedArchetypeName.value = null;
+            deckFormat.value = '';
             console.log('Deck imported successfully!');
             reloadStoredDecks();
             
@@ -546,6 +551,9 @@ onMounted(async () => {
                         <v-col cols="6">
                           <v-text-field v-model="deckFormat" label="Format (Default: Pauper)" variant="outlined" density="comfortable"
                             class="deck-input mb-6" hint="Pauper, Standard, Commander, etc." persistent-hint />
+                        <v-select v-model="deckVisibility" :items="['Public', 'Private']" label="Deck Visibility" variant="outlined" density="comfortable"
+                            class="deck-input mb-6" hint="Set the visibility of the deck" persistent-hint>
+                        </v-select>
                         </v-col>
                       </v-row>
 
