@@ -11,6 +11,9 @@ import ImportCandidatesDashboard from './components/ImportCandidatesDashboard.vu
 import MtgSetDataDashboard from './components/MtgSetDataDashboard.vue'
 import CardMetadataDashboard from './components/CardMetadataDashboard.vue'
 import Login from './components/Login.vue'
+import Register from './components/Register.vue'
+import ForgotAccountInfo from './components/ForgotAccountInfo.vue'
+import ResetPassword from './components/ResetPassword.vue'
 
 import { useAuth } from '@/composables/useAuth'
 
@@ -28,7 +31,10 @@ const routes = [
     { path: '/importcandidates', component: ImportCandidatesDashboard, meta: { requiresAuth: true } },
     { path: '/magicsetdata', component: MtgSetDataDashboard, meta: { requiresAuth: true } },
     { path: '/cardmetadata', component: CardMetadataDashboard, meta: { requiresAuth: true } },
-    { path: '/login', component: Login }
+    { path: '/login', component: Login },
+    { path: '/register', component: Register },
+    { path: '/forgot-account', component: ForgotAccountInfo },
+    { path: '/reset-password', component: ResetPassword }
 ]
 
 const router = createRouter({

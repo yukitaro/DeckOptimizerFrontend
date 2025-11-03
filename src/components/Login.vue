@@ -74,6 +74,10 @@ const login = async () => {
                 Need an invite?
                 <RouterLink to="/register">Request access</RouterLink>
               </div>
+              <div class="text-caption mb-4">
+                Forgot your account info?
+                <RouterLink to="/forgot-account">Recover account</RouterLink>
+              </div>
 
               <v-btn
                 type="submit"

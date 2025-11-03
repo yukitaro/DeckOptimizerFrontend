@@ -1,11 +1,16 @@
 import axios from 'axios'
 
-let baseURL = import.meta.env.VITE_API_BASE_URL || '' // default fallback
-let baseSymbolUrl = import.meta.env.VITE_SYMBOL_BASE_URL || '/storage' // default fallback
 
 const host = typeof window !== "undefined" ? window.location.hostname : "";
 
-if (host.includes('192.168.4.161')) {
+let baseURL = 'http://192.168.4.46' //import.meta.env.VITE_API_BASE_URL
+let baseSymbolUrl = import.meta.env.VITE_SYMBOL_BASE_URL || '/storage' // default fallback
+
+if (host.includes('192.168.4.46')) {
+  baseURL = import.meta.env.VITE_API_BASE_URL
+  console.log('setting baseURL to local dev:', baseURL)
+  baseSymbolUrl = import.meta.env.VITE_SYMBOL_BASE_URL
+} if (host.includes('192.168.4.161')) {
   baseURL = import.meta.env.VITE_API_BASE_URL
   baseSymbolUrl = import.meta.env.VITE_SYMBOL_BASE_URL
 } else if (host.includes('98.164.213.139')) {
@@ -19,9 +24,11 @@ if (host.includes('192.168.4.161')) {
   baseSymbolUrl = import.meta.env.VITE_SYMBOL_BASE_URL
 }
 
+console.log('host is : ' + host)
+
 export const laravel_api = axios.create({
   baseURL,
-  timeout: 30000,
+  timeout: 10000,
   withCredentials: true,
   headers: {
     Accept: 'application/json',
