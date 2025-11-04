@@ -14,11 +14,16 @@ const currentPrintingIndex = ref(0);
 const allReleasedSets = ref([]);
 const enrichedPrintings = ref([]);
 const priceMapByCompositeKey = ref({});
-const selectedCardId = ref(null); // Track which card was clicked
-const showBackFace = ref(false); // Toggle for DFC back face
-const isNavigatingCarousel = ref(false); // Flag to prevent watcher from running during carousel navigation
+const selectedCardId = ref(null);
+const showBackFace = ref(false);
+const isNavigatingCarousel = ref(false);
 
-// ... (keep all the existing header/table configs)
+const props = defineProps({
+  cardId: { type: [String, Number], default: null },
+  cardSlug: { type: String, default: null },
+  cardSet: { type: String, default: null },
+  cardNumberInSet: { type: String, default: null }
+});
 
 const priceHeaders = [
   { title: 'Finish', key: 'finish', sortable: true },
@@ -306,6 +311,24 @@ onMounted(async () => {
   try {
     const sets = await fetchMagicSetData();
     allReleasedSets.value = sets;
+
+    if (props.cardId) {
+      // If a cardId prop is provided, fetch that card's metadata immediately
+      loading.value = true;
+      try {
+        const data = await fetchCardDataNormalizedCoverageWithSlug(props.cardSet, props.cardSlug, props.cardNumberInSet);
+        selectedMetadata.value = data;
+
+        priceMapByCompositeKey.value = Object.entries(selectedMetadata.value.bulk_price_data).reduce((acc, [key, price]) => {
+          acc[key] = parseFloat(price);
+          return acc;
+        }, {});
+      } catch (err) {
+        error.value = 'Failed to load metadata for the specified card.';
+      } finally {
+        loading.value = false;
+      }
+    }
   } catch (err) {
     console.error('Failed to fetch released sets:', err);
   }

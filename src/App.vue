@@ -1,3 +1,28 @@
+<script setup>
+import { useRoute } from 'vue-router'
+import AppFooter from './components/AppFooter.vue'
+import { useAuth } from '@/composables/useAuth'
+import { onMounted, computed } from 'vue'
+
+const $route = useRoute()
+const { user, fetchUser } = useAuth()
+
+onMounted(() => {
+  // Optional: hydrate user on first load
+  if (!user.value) {
+    fetchUser()
+  }
+})
+
+// ✅ Make login state reactive
+const isLoggedIn = computed(() => !!user.value)
+const userAlias = computed(() => user.value?.alias ?? '')
+
+const toggleDashboard = () => {
+  window.location.href = '/user-dashboard'
+}
+</script>
+
 <template>
   <v-app>
     <!-- Main App Bar -->
@@ -20,27 +45,36 @@
             prepend-icon="mdi-magnify">
             Search
           </v-btn>
-          
+
           <v-btn :to="'/decks'" :variant="$route.path === '/decks' ? 'elevated' : 'text'"
             :color="$route.path === '/decks' ? 'primary' : 'default'" size="large"
-            class="nav-btn" prepend-icon="mdi-cards-variant">
+            class="nav-btn mr-3" prepend-icon="mdi-cards-variant">
             Decks
           </v-btn>
 
-          <v-btn :to="'/collections'" :variant="$route.path === '/collections' ? 'elevated' : 'text'"
-            :color="$route.path === '/collections' ? 'primary' : 'default'" size="large"
-            class="nav-btn" prepend-icon="mdi-archive">
-            Collection
-          </v-btn>
+          <template v-if="isLoggedIn">
+            <v-btn :to="'/collections'" :variant="$route.path === '/collections' ? 'elevated' : 'text'"
+              :color="$route.path === '/collections' ? 'primary' : 'default'" size="large"
+              class="nav-btn mr-3" prepend-icon="mdi-archive">
+              Collections
+            </v-btn>
 
-          <v-btn :to="'/settings'"
-            :variant="$route.path === '/settings' ? 'elevated' : 'text'"
-            :color="$route.path === '/settings' ? 'primary' : 'default'"
-            size="large"
-            class="nav-btn"
-            prepend-icon="mdi-cog">
-            Settings
-          </v-btn>          
+            <v-btn :to="'/settings'" :variant="$route.path === '/settings' ? 'elevated' : 'text'"
+              :color="$route.path === '/settings' ? 'primary' : 'default'" size="large"
+              class="nav-btn mr-3" prepend-icon="mdi-cog">
+              Settings
+            </v-btn>
+
+            <v-btn @click="toggleDashboard" variant="text" size="large" class="nav-btn">
+              {{ userAlias }}
+            </v-btn>
+          </template>
+
+          <template v-else>
+            <v-btn :to="'/login'" variant="text" size="large" class="nav-btn">
+              Login
+            </v-btn>
+          </template>
         </div>
       </div>
     </v-app-bar>
@@ -55,13 +89,6 @@
     <AppFooter />
   </v-app>
 </template>
-
-<script setup>
-import { useRoute } from 'vue-router'
-import AppFooter from './components/AppFooter.vue'
-
-const $route = useRoute()
-</script>
 
 <style scoped>
 /* Glassmorphism App Bar */

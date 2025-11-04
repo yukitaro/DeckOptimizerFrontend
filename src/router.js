@@ -14,6 +14,7 @@ import Login from './components/Login.vue'
 import Register from './components/Register.vue'
 import ForgotAccountInfo from './components/ForgotAccountInfo.vue'
 import ResetPassword from './components/ResetPassword.vue'
+import UserDashboard from './components/UserDashboard.vue'
 
 import { useAuth } from '@/composables/useAuth'
 
@@ -30,11 +31,18 @@ const routes = [
     { path: '/adminconsole/data-coverage', component: DataCoverageDashboard, meta: { requiresAuth: true } },
     { path: '/importcandidates', component: ImportCandidatesDashboard, meta: { requiresAuth: true } },
     { path: '/magicsetdata', component: MtgSetDataDashboard, meta: { requiresAuth: true } },
-    { path: '/cardmetadata', component: CardMetadataDashboard, meta: { requiresAuth: true } },
+    { path: '/cardmetadata', name: 'CardMetadataDashboard', component: CardMetadataDashboard,  meta: { requiresAuth: true },
+            props: route => ({
+                              cardId: route.query.cardId || null,
+                              cardSet: route.query.cardSet || null,
+                              cardSlug: route.query.cardSlug || null,
+                              cardNumberInSet: route.query.cardNumberInSet || null
+                            }), },
     { path: '/login', component: Login },
     { path: '/register', component: Register },
     { path: '/forgot-account', component: ForgotAccountInfo },
-    { path: '/reset-password', component: ResetPassword }
+    { path: '/reset-password', component: ResetPassword },
+    { path: '/user-dashboard', component: UserDashboard, meta: { requiresAuth: true } }
 ]
 
 const router = createRouter({

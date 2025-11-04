@@ -1,7 +1,7 @@
 import { laravel_api as api } from './client'
 
 export async function createNewCollection({ name, description }: { name: string; description: string }) {
-  const response = await api.post('/api/collections', {
+  const response = await api.post('/api/collections/create', {
     name,
     description,
   })

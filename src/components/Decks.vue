@@ -438,6 +438,16 @@ const visibleSuggestions = computed(() => {
     .slice(0, suggestionsLimit);
 });
 
+function routeToCardMetadata(card) {
+  if (!card || !card.id) return;
+
+  console.log('Routing to CardMetadataDashboard for card:', card + 'with slug:', card.slug, 'set:', card.set_name, 'number in set:', card.number_in_set);
+  router.push({
+    name: 'CardMetadataDashboard',
+    query: { cardId: card.id, cardSlug: card.slug, cardSet: card.set_name, cardNumberInSet: card.number_in_set }
+  });
+}
+
 onMounted(async () => {
     await getDecksFromDB()
     await getKnownArchetypesFromDB()
@@ -758,7 +768,7 @@ onMounted(async () => {
               
               <p>
                 <strong>{{ card.card_count }}x</strong>
-                <span class="card-name" @mouseover="hoveredCard = card">
+                <span class="card-name" @click="routeToCardMetadata(card)" @mouseover="hoveredCard = card">
                   {{ card.name }}
                 </span>
                 —

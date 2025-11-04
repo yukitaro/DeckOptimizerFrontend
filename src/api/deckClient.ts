@@ -47,6 +47,7 @@ export async function retrieveSideboardForDeck(deck_id: any) {
 }
 
 export async function deleteDeckById(deck_id: number) {
+    await getCSRF()
     const response = await api.delete(`/api/decks/${deck_id}`)
     return response.data || []
 }

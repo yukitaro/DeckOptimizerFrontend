@@ -149,6 +149,9 @@ async function handleSelectionChange(newSelection: Deck[]) {
     collection_ids: collectionIds // Pass the extracted IDs
   })
 
+console.log('🧪 Inventory keys:', Object.keys(normalizedInventory.value))
+console.log('🧪 Deck card names:', uniqueNames)  
+
   normalizedInventory.value = Object.fromEntries(
   response.data.map((entry: { name: any }) => [entry.name, entry])
 )
@@ -173,26 +176,20 @@ console.log('📦 Processed inventory:', normalizedInventory.value)
 }
 
 function getInventoryCount(card: any): number {
-  const name = card.name.trim()
-  const inventory = normalizedInventory.value[name]
-  
+  const normalizedKey = card.name.trim().toLowerCase()
+  const inventory = normalizedInventory.value[normalizedKey]
+
   if (!inventory) {
-    // Try fuzzy matching for debugging
     const availableNames = Object.keys(normalizedInventory.value)
-    const similarNames = availableNames.filter(n => 
-      n.toLowerCase().includes(name.toLowerCase()) || 
-      name.toLowerCase().includes(n.toLowerCase())
+    const similarNames = availableNames.filter(n =>
+      n.includes(normalizedKey) || normalizedKey.includes(n)
     )
-    
-/*     if (similarNames.length > 0) {
-      console.warn(`🔍 "${name}" not found, but similar: ${similarNames.join(', ')}`)
-    } else {
-      console.warn(`❌ "${name}" not found in inventory at all`)
-    } */
+    console.warn(`❌ "${card.name}" not found. Similar: ${similarNames.join(', ')}`)
   }
-  
+
   return inventory?.total_count || 0
 }
+
 function getDelta(card: any): number {
   const lockedTotal = getLockedTotal(card)
   const inventory = getInventoryCount(card)

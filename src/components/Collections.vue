@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, toRaw, watch, watchEffect } from 'vue'
-import axios from 'axios'
 import { createNewCollection, deleteCollectionFromServer, importCollectionFromExternalSource, pollServerForImportStatus, retrieveCollections, viewCardsInCollection } from '@/api/collection';
 
-const base_api_url = import.meta.env.VITE_LARAVEL_API_BASE_URL;
 
 const csvFile = ref(null)
 const listOfCollections = ref([])
