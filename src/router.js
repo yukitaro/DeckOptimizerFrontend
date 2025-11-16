@@ -15,6 +15,8 @@ import Register from './components/Register.vue'
 import ForgotAccountInfo from './components/ForgotAccountInfo.vue'
 import ResetPassword from './components/ResetPassword.vue'
 import UserDashboard from './components/UserDashboard.vue'
+import AdminRoles from './components/AdminRoles.vue'
+import RolePermissions from './components/RolePermissions.vue'
 
 import { useAuth } from '@/composables/useAuth'
 
@@ -27,6 +29,8 @@ const routes = [
     { path: '/collections', component: Collections },
     { path: '/settings', component: Settings },
     { path: '/adminconsole', component: AdminConsole, meta: { requiresAuth: true } },
+    { path: '/adminconsole/roles', component: AdminRoles, meta: { requiresAuth: true } },
+    { path: '/adminconsole/role-permissions', component: RolePermissions, meta: { requiresAuth: true } },
     { path: '/adminconsole/image-coverage', component: ImageCoverageDashboard, meta: { requiresAuth: true } },
     { path: '/adminconsole/data-coverage', component: DataCoverageDashboard, meta: { requiresAuth: true } },
     { path: '/importcandidates', component: ImportCandidatesDashboard, meta: { requiresAuth: true } },

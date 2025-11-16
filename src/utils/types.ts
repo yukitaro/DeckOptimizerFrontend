@@ -12,6 +12,10 @@ export interface Card {
   board_group?: string
 }
 
+export interface EnrichedCardData {
+  related_printings: string // Comma-separated set codes
+}
+
 export interface MtgCard {
   name: string
   set_name: string
@@ -70,4 +74,21 @@ export interface ImportCandidate {
   imported_into_database: boolean;
 }
 
+export interface Role {
+  id: number
+  name: string
+  label?: string
+}
 
+export interface Permission {
+  id: number
+  name: string
+  label?: string
+}
+
+export interface User {
+  id: number
+  email: string
+  name?: string
+  roles: Role[]
+}

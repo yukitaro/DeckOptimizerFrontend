@@ -1,7 +1,6 @@
 import { ref } from 'vue';
-import { fetchUserAPI, getCSRF, loginAPI, logoutAPI,  } from '@/api/auth';
+import { fetchUserAPI, getCSRF, loginAPI, logoutAPI } from '@/api/auth';
 import { laravel_api as api } from '@/api/client';
-
 
 const user = ref(null)
 

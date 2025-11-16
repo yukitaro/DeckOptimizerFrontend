@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, toRaw, watch, watchEffect } from 'vue'
 import { createNewCollection, deleteCollectionFromServer, importCollectionFromExternalSource, pollServerForImportStatus, retrieveCollections, viewCardsInCollection } from '@/api/collection';
+import { useRoute, useRouter } from 'vue-router'
 
+const router = useRouter()
 
 const csvFile = ref(null)
 const listOfCollections = ref([])
@@ -150,6 +152,17 @@ const fetchCollections = async () => {
     }
 }
 
+function routeToCardMetadata(card) {
+  if (!card || !card.id) return;
+
+  console.log('Routing to CardMetadataDashboard for card:', card.card_from_set.id + 'with slug:', card.card_from_set.slug, 'set:', card.card_from_set.set_name, 'number in set:', card.card_from_set.number_in_set);
+  router.push({
+    name: 'CardMetadataDashboard',
+    query: { cardId: card.card_from_set.id, cardSlug: card.card_from_set.slug, cardSet: card.card_from_set.set_name, cardNumberInSet: card.card_from_set.number_in_set }
+  });
+}
+
+
 onMounted(() => {
     fetchCollections()
 
@@ -268,7 +281,6 @@ async function refreshFilteredCards() {
   //currentPage.value = 2
   hasMore.value = response.data.meta.current_page < response.data.meta.last_page
 }
-
 
 const loadMoreCards = async () => {
   if (!hasMore.value || isLoading.value) return
@@ -743,7 +755,7 @@ async function deleteCollection() {
                         <div class="card-grid">
                             <v-card v-for="card in groupedCards" 
                                 :key="card.id" class="card-item" variant="outlined">
-                                <v-img 
+                                <v-img @click="routeToCardMetadata(card)"
                                     :src="card.card_from_set?.image_url || 'https://via.placeholder.com/200x280'" 
                                     :alt="card.card_from_set?.name || 'Card'"
                                     aspect-ratio="5/7"

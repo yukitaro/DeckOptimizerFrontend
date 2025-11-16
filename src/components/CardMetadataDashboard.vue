@@ -1,22 +1,22 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
-import { getCardData, getCardDataBySlugAndNumber } from '@/api/cardClient';
-import { fetchCardDataNormalizedCoverageWithSlug, fetchMagicSetData } from '@/api/dashboard';
+import { computed, onMounted, ref } from 'vue';
 import { getColorManaCost, getNumericalManaCost, mapColorCodeToName} from '../utils/deckUtils'
 import Colors from './Colors.vue';
+import { useCardMetadata } from '@/composables/useCardMetadata';
+
+const {
+  selectedMetadata, enrichedPrintings, priceItems, deckItems, priceMap, loading, error,
+  loadCardMetadata, searchCards, reprints, selectPrinting, clearSelection, currentPrinting,
+  currentPrintingIndex, currentImageUrl, isDFC, showBackFace, toggleCardFace, previousPrinting,
+  nextPrinting, selectPrintingFromList, magicSetData, priceMapById
+} = useCardMetadata();
 
 const searchText = ref('');
-const reprints = ref([]);
-const loading = ref(false);
-const error = ref('');
-const selectedMetadata = ref(null);
-const currentPrintingIndex = ref(0);
-const allReleasedSets = ref([]);
-const enrichedPrintings = ref([]);
-const priceMapByCompositeKey = ref({});
-const selectedCardId = ref(null);
-const showBackFace = ref(false);
-const isNavigatingCarousel = ref(false);
+
+function parseSetNameFromFinish(finish) {
+  const match = finish.match(/(\w*)\s+#/);
+  return match ? match[1] : null;
+}
 
 const props = defineProps({
   cardId: { type: [String, Number], default: null },
@@ -37,126 +37,6 @@ const deckHeaders = [
   { title: 'Archetype', key: 'archetype', sortable: true },
   { title: 'Link', key: 'external_link', sortable: false },
 ];
-
-// Watch for selectedMetadata changes and enrich printings
-watch(selectedMetadata, async (newVal, oldVal) => {
-  // Skip if we're just navigating the carousel
-  if (isNavigatingCarousel.value) {
-    isNavigatingCarousel.value = false;
-    return;
-  }
-  
-  // Reset back face when changing cards
-  showBackFace.value = false;
-  
-  if (!newVal?.related_printings || !newVal.card?.name) {
-    enrichedPrintings.value = [];
-    return;
-  }
-
-  // Avoid re-fetching if it's the same card (prevents infinite loops)
-  if (oldVal?.card?.id === newVal?.card?.id && enrichedPrintings.value.length > 0) {
-    return;
-  }
-
-  // Parse the comma-separated string of set codes
-  const setCodes = newVal.related_printings.split(',').map(s => s.trim());
-  
-  // Filter the existing reprints data (from Stage 1 search)
-  // Match by exact card name AND set code in related_printings
-  const targetCardName = newVal.card.name;
-  
-  const uniqueCards = new Map();
-  
-  reprints.value.forEach(card => {
-    const key = `${card.set_name}_${card.number_in_set}`;
-    // Only include if: 1) exact name match, 2) set is in related_printings
-    if (!uniqueCards.has(key) && 
-        card.name === targetCardName && 
-        setCodes.includes(card.set_name)) {
-      
-      // Enrich with set data from allReleasedSets
-      const setInfo = allReleasedSets.value.find(s => 
-        s.code === card.set_name || s.set_name === card.set_name
-      );
-      
-      uniqueCards.set(key, {
-        ...card,
-        release_date: setInfo?.release_date || card.release_date || '9999-12-31',
-        set_full_name: setInfo?.name || card.set_name,
-      });
-    }
-  });
-  
-  enrichedPrintings.value = Array.from(uniqueCards.values())
-    .sort((a, b) => a.release_date.localeCompare(b.release_date));
-  
-  // Find the index by matching set_name and number_in_set
-  if (selectedCardId.value) {
-    const selectedCard = newVal.card;
-    const index = enrichedPrintings.value.findIndex(card => 
-      card.set_name === selectedCard.set_name && 
-      card.number_in_set === selectedCard.number_in_set
-    );
-    currentPrintingIndex.value = index !== -1 ? index : 0;
-  } else {
-    currentPrintingIndex.value = 0;
-  }
-});
-
-// Get current printing to display - add safety check
-const currentPrinting = computed(() => {
-  if (!enrichedPrintings.value.length) {
-    return selectedMetadata.value?.card;
-  }
-  // Safety check: ensure index is valid
-  if (currentPrintingIndex.value >= enrichedPrintings.value.length) {
-    currentPrintingIndex.value = 0;
-  }
-  return enrichedPrintings.value[currentPrintingIndex.value] || selectedMetadata.value?.card;
-});
-
-// Check if current card is a DFC
-const isDFC = computed(() => {
-  return !!currentPrinting.value?.back_image_url || 
-         !!selectedMetadata.value?.card?.back_image_url;
-});
-
-// Get the appropriate image URL based on face shown
-const currentImageUrl = computed(() => {
-  if (showBackFace.value && isDFC.value) {
-    return currentPrinting.value?.back_image_url || 
-           selectedMetadata.value?.card?.back_image_url;
-  }
-  return currentPrinting.value?.image_url;
-});
-
-// Transform pricing data for v-data-table
-const priceItems = computed(() => {
-  if (!selectedMetadata.value?.bulk_price_data) return [];
-  
-  return Object.entries(selectedMetadata.value.bulk_price_data).map(([label, price]) => ({
-    finish: label.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-    price: parseFloat(price) || 0,
-    priceFormatted: `$${parseFloat(price).toFixed(2)}`,
-  }));
-});
-
-// Transform deck usage data for v-data-table
-const deckItems = computed(() => {
-  if (!selectedMetadata.value?.deck_usages) return [];
-  
-  const items = [];
-  Object.entries(selectedMetadata.value.deck_usages).forEach(([archetype, decks]) => {
-    decks.forEach(deck => {
-      items.push({
-        ...deck,
-        archetype,
-      });
-    });
-  });
-  return items;
-});
 
 // Card stats for quick view
 const cardStats = computed(() => {
@@ -187,150 +67,23 @@ const averagePrice = computed(() => {
   return `$${avg.toFixed(2)}`;
 });
 
-function normalizeCardSearch(input) {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gi, ' ')  // Replace all non-alphanumeric with space
-    .trim()                        // Remove leading/trailing whitespace
-    .replace(/\s+/g, ' ');         // Collapse multiple spaces
+function doSearch() {
+  searchCards(searchText.value);
 }
-
-const searchCards = async () => {
-  if (!searchText.value.trim()) return;
-
-  loading.value = true;
-  error.value = '';
-  reprints.value = [];
-  selectedMetadata.value = null;
-
-  try {
-    let searchQuery = searchText.value.trim();
-    const { data } = await getCardData(normalizeCardSearch(searchQuery));
-    
-    // Deduplicate DFC cards (they might come back with both faces)
-    const uniqueCards = new Map();
-    data.forEach(card => {
-      const key = `${card.set_name}_${card.number_in_set}`;
-      // Only keep first occurrence (front face) for each set+number combo
-      if (!uniqueCards.has(key)) {
-        uniqueCards.set(key, card);
-      }
-    });
-    
-    reprints.value = Array.from(uniqueCards.values());
-  } catch (err) {
-    error.value = 'No matching cards found.';
-  } finally {
-    loading.value = false;
-  }
-};
-
-const selectPrinting = async (cardId, set, cardSlug, number) => {
-  loading.value = true;
-  error.value = '';
-  selectedCardId.value = cardId; // Store which card was clicked
-  showBackFace.value = false; // Reset to front face
-
-  try {
-    const data = await fetchCardDataNormalizedCoverageWithSlug(set, cardSlug, number);
-    selectedMetadata.value = data;
-
-    priceMapByCompositeKey.value = Object.entries(selectedMetadata.value.bulk_price_data).reduce((acc, [key, price]) => {
-      acc[key] = parseFloat(price);
-      return acc;
-    }, {});
-  } catch (err) {
-    error.value = 'Failed to load metadata.';
-  } finally {
-    loading.value = false;
-  }
-};
-
-const clearSelection = () => {
-  selectedMetadata.value = null;
-  currentPrintingIndex.value = 0;
-  enrichedPrintings.value = [];
-  selectedCardId.value = null;
-  priceMapByCompositeKey.value = null;
-  showBackFace.value = false;
-};
-
-const previousPrinting = () => {
-  if (!enrichedPrintings.value.length) return;
-  showBackFace.value = false; // Reset to front face when changing printings
-  currentPrintingIndex.value = 
-    (currentPrintingIndex.value - 1 + enrichedPrintings.value.length) % 
-    enrichedPrintings.value.length;
-};
-
-const nextPrinting = () => {
-  if (!enrichedPrintings.value.length) return;
-  showBackFace.value = false; // Reset to front face when changing printings
-  currentPrintingIndex.value = 
-    (currentPrintingIndex.value + 1) % enrichedPrintings.value.length;
-};
-
-const toggleCardFace = () => {
-  showBackFace.value = !showBackFace.value;
-};
-
-// Updated function for clicking cards in Related Printings list
-const selectPrintingFromList = async (print) => {
-  showBackFace.value = false;
-  selectedCardId.value = print.id;
-  const index = enrichedPrintings.value.findIndex(p => p.id === print.id);
-  currentPrintingIndex.value = index !== -1 ? index : 0;
-  
-  // Set flag to prevent watcher from re-fetching
-  isNavigatingCarousel.value = true;
-  
-  // Update metadata without triggering a full refetch
-  // The card data is already in enrichedPrintings, just update the selected card
-  console.log('Selected printing from list:', print.set_name, print.number_in_set);
-};
-
-const magicSetData = computed(() => {
-  return allReleasedSets.value.reduce((acc, set) => {
-    acc[set.set_name] = {
-      set_code: set.official_set_code,
-      release_date: set.release_date,
-      total_cards: set.total_cards
-    };
-    return acc;
-  }, {});
-});
-
-const setCodeMap = computed(() => {
-  return allReleasedSets.value.reduce((acc, set) => {
-    acc[set.set_code] = set;
-  return acc;
-  }, {});
-});
 
 onMounted(async () => {
   try {
-    const sets = await fetchMagicSetData();
-    allReleasedSets.value = sets;
-
-    if (props.cardId) {
-      // If a cardId prop is provided, fetch that card's metadata immediately
-      loading.value = true;
-      try {
-        const data = await fetchCardDataNormalizedCoverageWithSlug(props.cardSet, props.cardSlug, props.cardNumberInSet);
-        selectedMetadata.value = data;
-
-        priceMapByCompositeKey.value = Object.entries(selectedMetadata.value.bulk_price_data).reduce((acc, [key, price]) => {
-          acc[key] = parseFloat(price);
-          return acc;
-        }, {});
-      } catch (err) {
-        error.value = 'Failed to load metadata for the specified card.';
-      } finally {
-        loading.value = false;
-      }
+    if (props.cardId && props.cardSet && props.cardSlug && props.cardNumberInSet) {
+        await loadCardMetadata({
+          cardId: props.cardId,
+          cardSet: props.cardSet,
+          cardSlug: props.cardSlug,
+          cardNumberInSet: props.cardNumberInSet
+        });
     }
-  } catch (err) {
-    console.error('Failed to fetch released sets:', err);
+  }
+  catch (error) {
+    console.error('Error loading card metadata on mount:', error);
   }
 });
 </script>
@@ -363,7 +116,7 @@ onMounted(async () => {
               variant="outlined"
               clearable
               :loading="loading"
-              @keyup.enter="searchCards"
+              @keyup.enter="doSearch"
               density="comfortable"
             />
             <v-btn
@@ -372,8 +125,7 @@ onMounted(async () => {
               block
               :disabled="loading || !searchText.trim()"
               :loading="loading"
-              @click="searchCards"
-            >
+              @click="doSearch">
               Search Cards
             </v-btn>
           </v-card-text>
@@ -475,21 +227,24 @@ onMounted(async () => {
       </v-row>
 
       <!-- Stats Cards -->
-      <v-row class="mt-2">
+      <v-row class="mt-2 stats-row" align="stretch" dense>
         <v-col
           v-for="stat in cardStats"
           :key="stat.label"
-          cols="5"
-          sm="2"
+          cols="12"
+          sm="6"
+          md="4"
+          lg="2"
+          class="stat-col"
         >
-          <v-card :color="stat.color" variant="tonal">
-            <v-card-text>
-              <div class="d-flex align-center justify-space-between">
-                <div>
-                  <div class="text-h5 font-weight-bold">{{ stat.value }}</div>
-                  <div class="text-caption">{{ stat.label }}</div>
+          <v-card :color="stat.color" variant="tonal" class="stat-card">
+            <v-card-text class="stat-card-text">
+              <div class="stat-content d-flex align-center justify-space-between">
+                <div class="stat-text">
+                  <div class="stat-value">{{ stat.value }}</div>
+                  <div class="stat-label">{{ stat.label }}</div>
                 </div>
-                <v-icon size="40" :color="stat.color">{{ stat.icon }}</v-icon>
+                <v-icon class="stat-icon" :color="stat.color">{{ stat.icon }}</v-icon>
               </div>
             </v-card-text>
           </v-card>
@@ -578,9 +333,12 @@ onMounted(async () => {
                   </v-chip>
                 </div>
                 <div>
-                  Price : {{ priceMapByCompositeKey[`${currentPrinting.set_name} #${currentPrinting.number_in_set}`] != null 
-                    ? `$${priceMapByCompositeKey[`${currentPrinting.set_name} #${currentPrinting.number_in_set}`].toFixed(2)}` 
-                    : 'N/A' }}
+                  Price :
+                  {{
+                    priceMapById[currentPrinting?.id]?.price != null
+                      ? priceMapById[currentPrinting.id].priceFormatted
+                      : 'N/A'
+                  }}
                 </div>
               </div>
             </v-card-text>
@@ -727,15 +485,19 @@ onMounted(async () => {
               Pricing Information
             </v-card-title>
             <v-divider />
-            <v-data-table
-              :headers="priceHeaders"
-              :items="priceItems"
-              :items-per-page="10"
-              density="comfortable"
-              class="elevation-0"
-            >
+            <v-data-table :headers="priceHeaders" :items="priceItems" :items-per-page="10" density="comfortable" class="elevation-0">
+              <template v-slot:item.finish="{ item }">
+                <div class="font-weight-medium">
+                  {{ (magicSetData[parseSetNameFromFinish(item.finish)]?.set_code ?? 'Promo Set') + ' - ' + (item.finish ?? '') }}
+                </div>
+              </template>
               <template v-slot:item.price="{ item }">
                 <span class="font-weight-bold text-success">{{ item.priceFormatted }}</span>
+                <div class="text-caption">
+                  <a v-if="item.tcgplayerUrl" :href="item.tcgplayerUrl" target="_blank">TCGPlayer</a>
+                  <span v-if="item.tcgplayerUrl && item.cardKingdomUrl"> · </span>
+                  <a v-if="item.cardKingdomUrl" :href="item.cardKingdomUrl" target="_blank">CardKingdom</a>
+                </div>
               </template>
 
               <template v-slot:no-data>
@@ -921,5 +683,58 @@ onMounted(async () => {
 .flip-button:hover {
   background-color: rgba(33, 150, 243, 1) !important;
   transform: rotate(180deg);
+}
+
+/* Responsive stat card styles */
+.stat-card { height: 100%; }
+.stat-card-text { padding: 12px; }
+.stat-value { font-size: 1.15rem; font-weight: 600; }
+.stat-label { font-size: 0.85rem; color: rgba(0,0,0,0.65); }
+.stat-icon { font-size: 28px; line-height: 1; }
+
+/* Larger icons on wider screens */
+@media (min-width: 960px) {
+  .stat-value { font-size: 1.35rem; }
+  .stat-icon { font-size: 40px; }
+  .stat-card-text { padding: 16px; }
+}
+
+/* Tighter layout on small screens */
+@media (max-width: 600px) {
+  .stats-row { gap: 8px; }
+  .stat-card-text { padding: 8px; }
+  .stat-value { font-size: 1.05rem; }
+  .stat-icon { font-size: 24px; }
+}
+
+/* Make image container and arrows friendlier on mobile */
+.card-image-container .v-img { max-width: 220px; }
+@media (min-width: 960px) {
+  .card-image-container .v-img { max-width: 265px; }
+}
+.carousel-arrow { width: 40px; height: 40px; font-size: 20px; }
+@media (min-width: 960px) { .carousel-arrow { width: 52px; height: 52px; font-size: 28px; } }
+
+/* Tone down flip-button transform on mobile (avoid heavy rotation) */
+.flip-button { transition: background-color 0.2s ease, transform 0.18s ease; }
+@media (max-width: 600px) { .flip-button:hover { transform: none; } }
+
+/* header cell */
+.tbl-header {
+  background: linear-gradient(180deg, rgba(250,250,250,0.98), rgba(242,242,242,0.98));
+  color: rgba(0,0,0,0.85);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-transform: none; /* or uppercase if you prefer */
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  padding: 10px 12px; /* slightly tighter */
+}
+
+/* right aligned header adjustments */
+.tbl-header-right { text-align: right; }
+
+/* keep header visually lifted from rows */
+.v-data-table thead .tbl-header {
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.04);
 }
 </style>
