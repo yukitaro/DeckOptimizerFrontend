@@ -78,6 +78,7 @@ export interface Role {
   id: number
   name: string
   label?: string
+  permissions: Permission[]
 }
 
 export interface Permission {
@@ -91,4 +92,5 @@ export interface User {
   email: string
   name?: string
   roles: Role[]
+  is_superuser: boolean
 }

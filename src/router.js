@@ -17,36 +17,67 @@ import ResetPassword from './components/ResetPassword.vue'
 import UserDashboard from './components/UserDashboard.vue'
 import AdminRoles from './components/AdminRoles.vue'
 import RolePermissions from './components/RolePermissions.vue'
+import { featureGrants } from '@/config/featureGrants'
 
 import { useAuth } from '@/composables/useAuth'
 
-const { user, fetchUser } = useAuth()
+const authRoutes = [
+  {
+    path: '/adminconsole',
+    component: AdminConsole,
+    meta: { feature: 'adminConsole' },
+  },
+  {
+    path: '/adminconsole/roles',
+    component: AdminRoles,
+    meta: { feature: 'roleManagement' },
+  },
+  {
+    path: '/adminconsole/role-permissions',
+    component: RolePermissions,
+    meta: { feature: 'permissionMatrix' },
+  },
+  {
+    path: '/importcandidates',
+    component: ImportCandidatesDashboard,
+    meta: { feature: 'mtgImport' },
+  },
+  {
+    path: '/magicsetdata',
+    component: MtgSetDataDashboard,
+    meta: { feature: 'mtgSetData' },
+  },
+  {
+    path: '/cardmetadata',
+    component: CardMetadataDashboard,
+    meta: { feature: 'cardMetadata' },
+    props: route => ({
+      cardId: route.query.cardId || null,
+      cardSet: route.query.cardSet || null,
+      cardSlug: route.query.cardSlug || null,
+      cardNumberInSet: route.query.cardNumberInSet || null,
+    }),
+  },
+  {
+    path: '/user-dashboard',
+    component: UserDashboard,
+  },
+].map(route => ({
+  ...route,
+  meta: { ...(route.meta || {}), requiresAuth: true },
+}))
 
 const routes = [
-    { path: '/', component: CardListingVuetify },
-    { path: '/decks', component: Decks },
-    { path: '/decks/:deckId?', name: 'Decks', component: Decks, props: true },
-    { path: '/collections', component: Collections },
-    { path: '/settings', component: Settings },
-    { path: '/adminconsole', component: AdminConsole, meta: { requiresAuth: true } },
-    { path: '/adminconsole/roles', component: AdminRoles, meta: { requiresAuth: true } },
-    { path: '/adminconsole/role-permissions', component: RolePermissions, meta: { requiresAuth: true } },
-    { path: '/adminconsole/image-coverage', component: ImageCoverageDashboard, meta: { requiresAuth: true } },
-    { path: '/adminconsole/data-coverage', component: DataCoverageDashboard, meta: { requiresAuth: true } },
-    { path: '/importcandidates', component: ImportCandidatesDashboard, meta: { requiresAuth: true } },
-    { path: '/magicsetdata', component: MtgSetDataDashboard, meta: { requiresAuth: true } },
-    { path: '/cardmetadata', name: 'CardMetadataDashboard', component: CardMetadataDashboard,  meta: { requiresAuth: true },
-            props: route => ({
-                              cardId: route.query.cardId || null,
-                              cardSet: route.query.cardSet || null,
-                              cardSlug: route.query.cardSlug || null,
-                              cardNumberInSet: route.query.cardNumberInSet || null
-                            }), },
-    { path: '/login', component: Login },
-    { path: '/register', component: Register },
-    { path: '/forgot-account', component: ForgotAccountInfo },
-    { path: '/reset-password', component: ResetPassword },
-    { path: '/user-dashboard', component: UserDashboard, meta: { requiresAuth: true } }
+  { path: '/', component: CardListingVuetify },
+  { path: '/decks', component: Decks },
+  { path: '/decks/:deckId?', name: 'Decks', component: Decks, props: true },
+  { path: '/collections', component: Collections },
+  { path: '/settings', component: Settings },
+  { path: '/login', component: Login },
+  { path: '/register', component: Register },
+  { path: '/forgot-account', component: ForgotAccountInfo },
+  { path: '/reset-password', component: ResetPassword },
+  ...authRoutes,
 ]
 
 const router = createRouter({
@@ -54,24 +85,27 @@ const router = createRouter({
     routes
 })
 
-
 const shouldCallBackend = Boolean(import.meta.env.VITE_ENABLE_AUTH === 'true');
 
 router.beforeEach(async (to, from, next) => {
-  if (!shouldCallBackend) {
-    return next()
-  }
+  if (!shouldCallBackend) return next()
 
   const { user, fetchUser } = useAuth()
+  const { canAccess } = useAccessControl()
 
   if (!user.value) await fetchUser()
 
   if (to.meta.requiresAuth && !user.value) {
-    return next('/login') // redirect to login
+    return next('/login')
+  }
+
+  if (to.meta.feature && !canAccess(to.meta.feature)) {
+    return next('/unauthorized')
   }
 
   next()
 })
+
 
 
 export default router

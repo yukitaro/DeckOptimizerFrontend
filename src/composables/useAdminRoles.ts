@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { fetchUsers,
          fetchPermissions as fetchPermissionsAPI,
          fetchRoles as fetchRolesAPI,
@@ -23,6 +23,25 @@ export const useAdminRoles = () => {
     permissions.value = await fetchPermissionsAPI()
   }
 
+    const permissionGroups = computed(() => {
+    const groups: Record<string, { label: string, permissions: Permission[] }> = {
+        issues: { label: 'Issues', permissions: [] },
+        users: { label: 'Users', permissions: [] },
+        decks: { label: 'Decks', permissions: [] },
+        collections: { label: 'Collections', permissions: [] },
+    }
+
+    for (const perm of permissions.value) {
+        if (perm.name.includes('issue')) groups.issues.permissions.push(perm)
+        else if (perm.name.includes('user')) groups.users.permissions.push(perm)
+        else if (perm.name.includes('deck')) groups.decks.permissions.push(perm)
+        else if (perm.name.includes('collection')) groups.collections.permissions.push(perm)
+    }
+
+    return Object.values(groups)
+    })
+
+
   const assignRoles = async (userId: number, roleIds: number[]) => {
     await assignRolesAPI(userId, roleIds)
   }
@@ -30,5 +49,5 @@ export const useAdminRoles = () => {
     await assignPermissionsAPI(roleId, permissionIds)
   }
 
-  return { users, roles, permissions, fetchPermissions, fetchRoles, loadUsers, assignRoles, assignPermissions }
+  return { users, roles, permissions, permissionGroups, fetchPermissions, fetchRoles, loadUsers, assignRoles, assignPermissions }
 }

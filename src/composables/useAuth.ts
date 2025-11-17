@@ -1,8 +1,9 @@
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { fetchUserAPI, getCSRF, loginAPI, logoutAPI } from '@/api/auth';
 import { laravel_api as api } from '@/api/client';
+import type { User } from '@/utils/types';
 
-const user = ref(null)
+const user = ref<User | null>(null);
 
 export function useAuth() {
   async function login(email: string, password: string) {
@@ -27,9 +28,24 @@ export function useAuth() {
     }
   }
 
-  function setUser(newUser) {
+  function setUser(newUser: User) {
     user.value = newUser
   }
 
-  return { user, login, logout, fetchUser, setUser }
+  const isAuthenticated = computed(() => !!user.value)
+
+  const isSuperuser = computed(() => user.value?.is_superuser === true)
+
+  const hasRole = (roleName: string) =>
+    user.value?.roles?.some((r: any) => r.name === roleName)
+
+  const hasPermission = (permName: string) =>
+    user.value?.roles?.flatMap((r: any) => r.permissions).some((p: any) => p.name === permName)
+
+  const isPowerUser = computed(() =>
+    hasRole('admin') || hasPermission('assign_permissions') || isSuperuser.value
+  )
+
+
+  return { isAuthenticated, isPowerUser, user, login, logout, fetchUser, setUser }
 }
