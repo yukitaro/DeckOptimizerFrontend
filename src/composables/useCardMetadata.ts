@@ -137,9 +137,7 @@ export function useCardMetadata() {
             card.set_name === selectedCard.set_name && 
             card.number_in_set === selectedCard.number_in_set
             );
-
             currentPrintingIndex.value = index !== -1 ? index : 0;
-            console.log("currentPrintingIndex watch: ", currentPrintingIndex);
         } else {
             currentPrintingIndex.value = 0;
         }
@@ -301,7 +299,6 @@ export function useCardMetadata() {
         currentPrintingIndex.value = 
             (currentPrintingIndex.value - 1 + enrichedPrintings.value.length) % 
             enrichedPrintings.value.length;
-            console.log("currentPrintingIndex watch: ", currentPrintingIndex);
     };
 
     const nextPrinting = () => {
@@ -309,8 +306,6 @@ export function useCardMetadata() {
         showBackFace.value = false; // Reset to front face when changing printings
         currentPrintingIndex.value = 
             (currentPrintingIndex.value + 1) % enrichedPrintings.value.length;
-            console.log("currentPrintingIndex watch: ", currentPrintingIndex);
-
     };
 
     const toggleCardFace = () => {
@@ -325,8 +320,6 @@ export function useCardMetadata() {
         const index = enrichedPrintings.value.findIndex(p => p.id === print.id);
         //console.log("Looking for current printing index for:", selectedCardId.value);
         currentPrintingIndex.value = index !== -1 ? index : 0;
-            console.log("currentPrintingIndex watch: ", currentPrintingIndex);
-
         isNavigatingCarousel.value = true;        
     };
 

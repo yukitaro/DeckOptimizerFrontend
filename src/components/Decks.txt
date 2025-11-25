@@ -16,6 +16,7 @@ import {
 } from '@/utils/deckUtils'
 import MultiDeckComparison from './MultiDeckComparison.vue';
 import { getKnownArchetypes, importDeckDataFromUrl, storeDeck } from '@/api/deckClient';
+import { format } from 'date-fns';
 
 const router = useRouter()
 const route = useRoute()

@@ -17,5 +17,13 @@
         </v-card>
       </v-col>
     </v-row>
+    <v-row>
+      <v-col cols="12" md="6">
+        <v-card to="/adminconsole/enum-management" class="hoverable">
+          <v-card-title>Enum Management Dashboard</v-card-title>
+          <v-card-text>Manage global and issue-related enums</v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
   </v-container>
 </template>

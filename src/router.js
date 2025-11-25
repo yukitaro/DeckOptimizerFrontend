@@ -1,5 +1,10 @@
 import { createWebHistory, createRouter } from 'vue-router'
 
+import AdminRoles from './components/AdminRoles.vue'
+import RolePermissions from './components/RolePermissions.vue'
+import { featureGrants } from '@/config/featureGrants'
+import { useAuth } from '@/composables/useAuth'
+
 import CardListingVuetify from './components/CardListingVuetify.vue'
 import Decks from './components/Decks.vue'
 import Collections from './components/Collections.vue'
@@ -15,11 +20,8 @@ import Register from './components/Register.vue'
 import ForgotAccountInfo from './components/ForgotAccountInfo.vue'
 import ResetPassword from './components/ResetPassword.vue'
 import UserDashboard from './components/UserDashboard.vue'
-import AdminRoles from './components/AdminRoles.vue'
-import RolePermissions from './components/RolePermissions.vue'
-import { featureGrants } from '@/config/featureGrants'
-
-import { useAuth } from '@/composables/useAuth'
+import IssueDashboard from './components/IssueDashboard.vue'
+import EnumManagementDashboard from './components/EnumManagementDashboard.vue'
 
 const authRoutes = [
   {
@@ -38,9 +40,19 @@ const authRoutes = [
     meta: { feature: 'permissionMatrix' },
   },
   {
+    path: '/adminconsole/enum-management',
+    component: EnumManagementDashboard,
+    meta: { feature: 'enums' },
+  },
+  {
     path: '/importcandidates',
     component: ImportCandidatesDashboard,
     meta: { feature: 'mtgImport' },
+  },
+  {
+    path: '/issues',
+    component: IssueDashboard,
+    meta: { feature: 'issueDashboard', requiredEnums: ['issue_types'] },
   },
   {
     path: '/magicsetdata',
@@ -92,6 +104,23 @@ router.beforeEach(async (to, from, next) => {
 
   const { user, fetchUser } = useAuth()
   const { canAccess } = useAccessControl()
+  const enums = useEnumsStore()
+
+   // Example: route meta might define requiredEnums: ['issue_types']
+  const requiredEnums = to.meta.requiredEnums || []
+
+  try {
+    // load each required domain if not present or version mismatch
+    await Promise.all(requiredEnums.map(domain => {
+      if (!enums.get(domain) || enums.get(domain).length === 0) {
+        return enums.fetchDomain(domain)
+      }
+      return Promise.resolve()
+    }))
+  } catch (err) {
+    // log/handle but don't necessarily block navigation forever
+    console.error('Failed to load enums for route', err)
+  }
 
   if (!user.value) await fetchUser()
 

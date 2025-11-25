@@ -94,3 +94,17 @@ export interface User {
   roles: Role[]
   is_superuser: boolean
 }
+
+export interface Issue {
+  id: number
+  title: string
+  description: string
+  issueType: string
+  created_at: string
+  updated_at: string
+  status: string
+  priority: string
+  issueAssigneeId: number
+  issueCreatorId: number
+  assignee?: User
+}
