@@ -35,7 +35,7 @@ const hoveredCard = ref(null)
 const deckToDelete = ref(null)
 const showConfirmDialog = ref(false)
 const allowFreeform = ref(false)
-const deckVisibility = ref('Public');
+const deckVisibility = ref('Public')
 
 const { cardsInSelectedDeck, deleteDeck, getDeckArchetypesInDB, getDecksFromDB, handleSingleDeckChange, isLoadingRecentDecks, listOfStoredDecks, reloadStoredDecks, recentlyImportedDecks } = useDeckData()
 

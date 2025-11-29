@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, toRaw, watch, watchEffect } from 'vue'
 import { createNewCollection, deleteCollectionFromServer, importCollectionFromExternalSource, pollServerForImportStatus, retrieveCollections, viewCardsInCollection } from '@/api/collection';
-import { useRoute, useRouter } from 'vue-router'
+import { useSiteWideRouter } from '@/composables/useSitewideRouter'
 
-const router = useRouter()
+const { routeToCardMetadata } = useSiteWideRouter();
 
 const csvFile = ref(null)
 const listOfCollections = ref([])
@@ -109,7 +109,7 @@ const createCollection = async () => {
     }
 }
 
-const viewCollection = async (collectionId) => {
+const viewCollection = async (collectionId: number) => {
     selectedCollection.value = collectionId
     cardsInCollection.value = []
     currentPage.value = 1
@@ -151,17 +151,6 @@ const fetchCollections = async () => {
         console.error('Error fetching collections:', error)
     }
 }
-
-function routeToCardMetadata(card) {
-  if (!card || !card.id) return;
-
-  console.log('Routing to CardMetadataDashboard for card:', card.card_from_set.id + 'with slug:', card.card_from_set.slug, 'set:', card.card_from_set.set_name, 'number in set:', card.card_from_set.number_in_set);
-  router.push({
-    name: 'CardMetadataDashboard',
-    query: { cardId: card.card_from_set.id, cardSlug: card.card_from_set.slug, cardSet: card.card_from_set.set_name, cardNumberInSet: card.card_from_set.number_in_set }
-  });
-}
-
 
 onMounted(() => {
     fetchCollections()
@@ -272,7 +261,6 @@ const queryParams = computed(() => ({
 
 watch(queryParams, async () => {
     await refreshFilteredCards()
-    //cardsInCollection.value = response.
 })
 
 async function refreshFilteredCards() {

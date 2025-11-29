@@ -3,7 +3,6 @@ import type { EnrichedCardData } from '@/utils/types'
 import { getCardData, getCardDataBySlugAndNumber } from '@/api/cardClient';
 import { fetchCardDataNormalizedCoverageWithSlug, fetchMagicSetData } from '@/api/dashboard';
 
-
 function _normalizeCardSearch(input = ''): string {
   return input
     .toLowerCase()

@@ -1,33 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, reactive } from 'vue';
-import axios from 'axios';
+import { computed, onMounted, ref } from 'vue';
 import Colors from './Colors.vue';
 import { getColorManaCost, getNumericalManaCost, mapColorCodeToName} from '../utils/deckUtils'
-import type { MtgCard } from '../utils/types';
 import { useCsvExport, CsvColumn } from '../composables/useCsvExport';
+import { getSetData, searchCardsByName, searchSetsByRarities } from '@/api/cardClient';
+import { useSiteWideRouter } from '@/composables/useSitewideRouter';
+import type { Card, CardBackendData } from '@/utils/types';
 
-// Types for our component
-interface SetDataItem {
-  set_name: string;
-  official_set_code: string;
-  total_cards: string;
-}
+const { routeToCardMetadata } = useSiteWideRouter();
 
 interface ProcessedSetData {
   value: string;
   title: string;
   official_set_name: string;
-}
-
-interface CardDataFromAPI {
-  id: number;
-  name: string;
-  set_name: string;
-  type: string;
-  colorIdentities: string;
-  mana_cost: string;
-  image_url: string;
-  text: string;
 }
 
 type ColorName = 'plains' | 'islands' | 'swamps' | 'mountains' | 'forests' | 'colorless';
@@ -49,7 +34,6 @@ const itemsPerPageOptions = [
   { value: -1, title: 'All' }
 ]
 
-const base_url = "http://localhost:80";
 const processedCardData = ref<any[]>([])
 const tableLoadKey = ref(0)
 const searchText = ref("")
@@ -72,8 +56,6 @@ const colorsToggle = ref<Record<ColorName, boolean>>({
     forests: false,
     colorless: false,
 })
-
-const processedMtgCardData = ref<MtgCard[]>([])
 
 const allHeaders = ref([
     { title: 'Name', value: 'name', width: '300px' },
@@ -110,30 +92,16 @@ setData.value.reduce((acc, { value, official_set_name }) => {
     }, {} as Record<string, string>)
 )
 
-
 onMounted(() => {
     getSetDataAsync()
-    getCardDataAsync()
 })
 
-async function getCardDataAsync() {
-    const cardDataResponse = await axios.get(`${base_url}/cardsJSON/40`)
-    //cardDataAsync.value.push(...arguments(cardDataResponse.data || []))
-    //cardDataAsync.value.cardData = cardDataResponse.data;
-    processRawCardData(cardDataResponse.data)
-}
-
 async function getSetDataAsync() {
-    const setDataResponse = await axios.get(`${base_url}/sets`)
-    
-    setData.value = setDataResponse.data.map((aSetsData: SetDataItem) => ({
-        value: aSetsData.set_name,
-        title: aSetsData.official_set_code + ' (' + aSetsData.set_name + ')',
-        official_set_name: aSetsData.official_set_code
-    }))
+    const setDataResponse = await getSetData()
+    setData.value = setDataResponse
 }
 
-function processRawCardData(data: CardDataFromAPI[]) {
+function processRawCardData(data: CardBackendData[]) {
     processedCardData.value = data.map(cardDataVal => {
         // grab the raw string once
         const rawCost       = cardDataVal.mana_cost ?? ''
@@ -155,34 +123,20 @@ function processRawCardData(data: CardDataFromAPI[]) {
             : ['colorless'] // Explicitly assign colorless for cards with no color identity
 
         return {
+            card_text: cardDataVal.text,
             id: cardDataVal.id,
-            name: cardDataVal.name,
-            set_name: cardDataVal.set_name,
-            official_set_name: setNameMap.value[cardDataVal.set_name],
-            type: cardDataVal.type,
+            image_url: cardDataVal.image_url ?? "",
             colors: colors,
             mana_cost: rawCost,
-            mana_numeric,   
-            mana_colors,              
-            image_url: cardDataVal.image_url ?? "",
-            card_text: cardDataVal.text
+            mana_numeric,
+            mana_colors,
+            name: cardDataVal.name,
+            official_set_name: setNameMap.value[cardDataVal.set_name],
+            set_name: cardDataVal.set_name,
+            type: cardDataVal.type,
+            backend_data: { ...cardDataVal }
         }   
     })
-}
-
-
-function convertColorToName(color: string): ColorName {
-    switch (color) {
-        case 'W': return 'plains'
-        case 'U': return 'islands'
-        case 'B': return 'swamps'
-        case 'R': return 'mountains'
-        case 'G': return 'forests'
-        case '':
-        case null:
-        case undefined:
-        default: return 'colorless'
-    }
 }
 
 const colorMap: Record<string, ColorName> = {
@@ -207,7 +161,6 @@ const filteredCardData = computed(() => {
         return card.colors && card.colors.some((color: string) => activeNames.includes(color));
     });
 });
-
 
 const activeColors = computed(() =>
     Object.entries(colorsToggle.value)
@@ -259,12 +212,7 @@ async function searchByName() {
     if (selectedRarity.value.length === 0) {
         selectedRarity.value = ['common', 'uncommon', 'rare', 'mythic']
     }
-
-    const cardDataResponse = await axios.get(`${base_url}/cards/name/${searchText.value}/rarities/${selectedRarity.value}`, {
-        params: {
-            limit: limitToRetrieve.value
-        }
-    });
+    const cardDataResponse = await searchCardsByName(searchText.value, selectedRarity.value.join(','));
     processRawCardData(cardDataResponse.data);
 }
 
@@ -274,22 +222,18 @@ async function searchAgainstSetData() {
     }
 
     if (searchText.value.length === 0) {
-        const cardDataResponse = await axios.get(`${base_url}/cardsfromsets/${selectedSets.value.map(set => set.value).join(',')}`, {
-            params: {
-                limit: limitToRetrieve.value,
-                colorFilters: colorFilterParam.value
-            }
-        });
+        const cardDataResponse = await searchSetsByRarities(selectedSets.value.map(set => set.value).join(','), selectedRarity.value.join(','), colorFilterParam.value);
         processRawCardData(cardDataResponse.data);
     } else {
-
-        const cardDataResponse = await axios.get(`${base_url}/cardsfromsets/name/${searchText.value}/rarities/${selectedRarity.value}`, {
-            params: {
-                limit: limitToRetrieve.value
-            }
-        });
+        const cardDataResponse = await searchCardsByName(searchText.value, selectedRarity.value.join(','));
         processRawCardData(cardDataResponse.data);
     }
+}
+
+function handleRowClick(_evt: MouseEvent, row: { item: { backend_data?: CardBackendData } }) {
+  const backendData = row.item.backend_data
+  if (!backendData) return
+  routeToCardMetadata({ card_from_set: backendData } as Card)
 }
  </script>
 
@@ -367,8 +311,7 @@ async function searchAgainstSetData() {
                       variant="outlined"
                       density="comfortable"
                       min="1"
-                      max="1000"
-                    />
+                      max="1000" />
                   </v-col>
                 </v-row>
 
@@ -379,8 +322,7 @@ async function searchAgainstSetData() {
                     color="primary"
                     size="large"
                     prepend-icon="mdi-magnify"
-                    class="mr-3"
-                  >
+                    class="mr-3">
                     Search Cards
                   </v-btn>
                   
@@ -389,8 +331,7 @@ async function searchAgainstSetData() {
                     color="secondary"
                     variant="outlined"
                     size="large"
-                    prepend-icon="mdi-download"
-                  >
+                    prepend-icon="mdi-download">
                     Export CSV
                   </v-btn>
                 </div>
@@ -413,8 +354,7 @@ async function searchAgainstSetData() {
               v-if="filteredCardData.length > 0" 
               color="primary" 
               variant="elevated"
-              class="ml-2"
-            >
+              class="ml-2">
               {{ filteredCardData.length }} cards
             </v-chip>
           </h3>
@@ -427,9 +367,9 @@ async function searchAgainstSetData() {
         :key="tableLoadKey"
         :items-per-page-options="itemsPerPageOptions"
         :items-per-page="itemsPerPage"
+        @click:row="handleRowClick"
         class="elevation-0"
-        hover
-      >
+        hover>
         <!-- Card Image Column -->
         <template v-slot:item.image_url="{ item }">
           <Popper hover arrow placement="right">

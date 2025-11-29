@@ -1,5 +1,6 @@
 // src/utils/deckComparisonUtils.ts
 import type { Deck, MatrixRow, Card } from './types'
+import { getCardPrices } from '@/api/priceClient';
 
 const base_api_url = import.meta.env.VITE_LARAVEL_API_BASE_URL;
 /**
@@ -79,7 +80,7 @@ export async function buildShoppingList(decks: Deck[]): Promise<Card[]> {
   const normalizedIds = shoppingList.map(card => card.id);
 
   // Fetch price data from backend
-  const retrievedPriceList = await fetchPricesForShoppingList(normalizedIds);
+  const retrievedPriceList = await getCardPrices(normalizedIds);
 
   // Attach up to 3 cheapest non-foil prices per card
   shoppingList.forEach(card => {
@@ -103,17 +104,3 @@ export async function buildShoppingList(decks: Deck[]): Promise<Card[]> {
   return shoppingList;
 }
 
-
-async function fetchPricesForShoppingList(normalizedIds: number[]): Promise<any[]> {
-  const response = await fetch(`${base_api_url}/fetch-card-prices`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ card_data_normalized_ids: normalizedIds }),
-  })
-
-  const prices = await response.json()
-
-  // You can now attach prices to cards, cache them, or pass to CSV export
-  //console.log('Fetched prices, KK was here:', prices)
-  return prices;
-}

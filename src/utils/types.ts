@@ -1,15 +1,49 @@
 // src/utils/types.ts
 
+// Types for our component
+export interface SetDataItem {
+  set_name: string;
+  official_set_code: string;
+  total_cards: string;
+}
+
+export interface CardPrice {
+  price: string | number
+  is_foil: boolean
+  currency?: string
+  source?: string
+  price_date?: string
+  set_name?: string
+  scryfall_id?: string
+  tcg_player_link?: string
+}
+
 /** A single card in a deck */
 export interface Card {
   id: number
   name: string
   type: string
   card_count: number
+  total?: number
   mana_cost?: string
   image_url_to_use?: string
   official_set_name?: string
   board_group?: string
+  prices?: CardPrice[]
+  card_from_set?: CardBackendData
+}
+
+export interface CardBackendData {
+  colorIdentities: string
+  id: number
+  image_url: string
+  mana_cost: string
+  name: string
+  number_in_set: string
+  set_name: string
+  slug: string
+  text: string
+  type: string
 }
 
 export interface EnrichedCardData {

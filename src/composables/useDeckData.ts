@@ -3,8 +3,6 @@ import { nextTick, ref, watch  } from 'vue'
 
 import { deleteDeckById, getAllDeckArchetypes, getCardsForDeckAPI, getStoredDecks, retrieveCardsForDeck, retrieveCardsForDeckByBoardGroup, retrieveSideboardForDeck } from '@/api/deckClient';
 
-const base_url = import.meta.env.VITE_LARAVEL_API_BASE_URL;
-
 const cardsInSelectedDeck = ref<Card[][]>([])
 const cardsInSideboardOfSelectedDeck = ref<Card[][]>([])
 const listOfStoredDecks = ref<Deck[]>([])
@@ -121,7 +119,6 @@ export function useDeckData() {
           description: deckData.description,
           archetype: deckData.archetype ?? 'Unknown'
         })))
-        console.log("Complete return value: " + JSON.stringify(listOfStoredDecks.value));
       }
     } catch (error) {
       console.error("Failed to fetch decks from DB", error)

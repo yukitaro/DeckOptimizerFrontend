@@ -61,6 +61,7 @@ const authRoutes = [
   },
   {
     path: '/cardmetadata',
+    name: 'CardMetadataDashboard',
     component: CardMetadataDashboard,
     meta: { feature: 'cardMetadata' },
     props: route => ({

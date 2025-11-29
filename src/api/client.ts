@@ -35,8 +35,7 @@ export const laravel_api = axios.create({
   timeout: 10000,
   withCredentials: true,
   headers: {
-    Accept: 'application/json',
-    
+    Accept: 'application/json'
   },
 })
 
