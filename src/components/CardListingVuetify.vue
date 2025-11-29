@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import Colors from './Colors.vue';
+import { CardDisplay, Colors } from '@/interfaces';
 import { getColorManaCost, getNumericalManaCost, mapColorCodeToName} from '../utils/deckUtils'
 import { useCsvExport, CsvColumn } from '../composables/useCsvExport';
 import { getSetData, searchCardsByName, searchSetsByRarities } from '@/api/cardClient';
@@ -38,6 +38,9 @@ const processedCardData = ref<any[]>([])
 const tableLoadKey = ref(0)
 const searchText = ref("")
 const itemsPerPage = ref(10)
+
+const viewMode = ref<'table' | 'grid'>('table')   // default to table
+const imageSize = ref<'sm' | 'md' | 'lg'>('md')   // default to medium
 
 // CSV Export composable
 const { downloadCsv } = useCsvExport<any>()
@@ -134,7 +137,7 @@ function processRawCardData(data: CardBackendData[]) {
             official_set_name: setNameMap.value[cardDataVal.set_name],
             set_name: cardDataVal.set_name,
             type: cardDataVal.type,
-            backend_data: { ...cardDataVal }
+            card_from_set: { ...cardDataVal }
         }   
     })
 }
@@ -230,8 +233,8 @@ async function searchAgainstSetData() {
     }
 }
 
-function handleRowClick(_evt: MouseEvent, row: { item: { backend_data?: CardBackendData } }) {
-  const backendData = row.item.backend_data
+function handleRowClick(_evt: MouseEvent, row: { item: { card_from_set?: CardBackendData } }) {
+  const backendData = row.item.card_from_set
   if (!backendData) return
   routeToCardMetadata({ card_from_set: backendData } as Card)
 }
@@ -342,7 +345,20 @@ function handleRowClick(_evt: MouseEvent, row: { item: { backend_data?: CardBack
       </v-card-text>
     </v-card>
   </div>
+  <v-toolbar flat class="mb-4">
+    <v-btn-toggle v-model="viewMode" mandatory>
+      <v-btn value="table" icon="mdi-table">Table</v-btn>
+      <v-btn value="grid" icon="mdi-view-grid">Grid</v-btn>
+    </v-btn-toggle>
 
+    <v-spacer />
+
+    <v-btn-toggle v-model="imageSize" mandatory>
+      <v-btn value="sm">Small</v-btn>
+      <v-btn value="md">Medium</v-btn>
+      <v-btn value="lg">Large</v-btn>
+    </v-btn-toggle>
+  </v-toolbar>
   <!-- Results Section -->
   <div class="results-section">
     <v-card class="results-card">
@@ -361,67 +377,79 @@ function handleRowClick(_evt: MouseEvent, row: { item: { backend_data?: CardBack
         </div>
       </v-card-title>
 
-      <v-data-table
-        :headers="allHeaders"
-        :items="filteredCardData"
-        :key="tableLoadKey"
-        :items-per-page-options="itemsPerPageOptions"
-        :items-per-page="itemsPerPage"
-        @click:row="handleRowClick"
-        class="elevation-0"
-        hover>
-        <!-- Card Image Column -->
-        <template v-slot:item.image_url="{ item }">
-          <Popper hover arrow placement="right">
-            <v-avatar size="48" class="card-thumbnail">
-              <v-img :src="item.image_url" alt="Card thumbnail" />
-            </v-avatar>
-            <template #content>
-              <div class="card-preview">
-                <v-img 
-                  :src="item.image_url" 
-                  alt="Full card"
-                  width="250"
-                  aspect-ratio="0.714"
-                />
-              </div>
-            </template>
-          </Popper>
-        </template>
+      <div v-if="viewMode === 'table'">
+        <v-data-table
+          :headers="allHeaders"
+          :items="filteredCardData"
+          :key="tableLoadKey"
+          :items-per-page-options="itemsPerPageOptions"
+          :items-per-page="itemsPerPage"
+          @click:row="handleRowClick"
+          class="elevation-0"
+          hover
+        >
+          <!-- Card Image Column -->
+          <template v-slot:item.image_url="{ item }">
+            <Popper hover arrow placement="right">
+              <v-avatar size="48" class="card-thumbnail">
+                <v-img :src="item.image_url" alt="Card thumbnail" />
+              </v-avatar>
+              <template #content>
+                <div class="card-preview">
+                  <v-img 
+                    :src="item.image_url" 
+                    alt="Full card"
+                    width="250"
+                    aspect-ratio="0.714"
+                  />
+                </div>
+              </template>
+            </Popper>
+          </template>
 
-        <!-- Colors Column -->
-        <template v-slot:item.colors="{ item }">
-          <div class="d-flex align-center">
-            <Colors 
-              v-for="(name, idx) in item.colors" 
-              :key="idx" 
-              :color_name="name"
-              class="mr-1" 
-            />
-          </div>
-        </template>
+          <!-- Colors Column -->
+          <template v-slot:item.colors="{ item }">
+            <div class="d-flex align-center">
+              <Colors 
+                v-for="(name, idx) in item.colors" 
+                :key="idx" 
+                :color_name="name"
+                class="mr-1" 
+              />
+            </div>
+          </template>
 
-        <!-- Mana Cost Column -->
-        <template v-slot:item.mana_cost="{ item }">
-          <div class="mana-cost-display d-flex align-center">
-            <Colors :mana_cost="item.mana_numeric" class="mr-1" />
-            <span
-              v-for="(c, idx) in item.mana_colors"
-              :key="idx"
-              class="color-symbol mr-1"
-            >
-              <Colors :color_name="mapColorCodeToName(c)" />
-            </span>
-          </div>
-        </template>
+          <!-- Mana Cost Column -->
+          <template v-slot:item.mana_cost="{ item }">
+            <div class="mana-cost-display d-flex align-center">
+              <Colors :mana_cost="item.mana_numeric" class="mr-1" />
+              <span
+                v-for="(c, idx) in item.mana_colors"
+                :key="idx"
+                class="color-symbol mr-1"
+              >
+                <Colors :color_name="mapColorCodeToName(c)" />
+              </span>
+            </div>
+          </template>
 
-        <!-- Card Text Column -->
-        <template v-slot:item.card_text="{ item }">
-          <div class="card-text-cell">
-            <div class="card-text-content">{{ item.card_text }}</div>
-          </div>
-        </template>
-      </v-data-table>
+          <!-- Card Text Column -->
+          <template v-slot:item.card_text="{ item }">
+            <div class="card-text-cell">
+              <div class="card-text-content">{{ item.card_text }}</div>
+            </div>
+          </template>
+        </v-data-table>
+      </div>
+      <div v-else class="card-grid">
+        <CardDisplay
+          v-for="card in filteredCardData"
+          :key="card.id"
+          :card="card"
+          viewMode="grid"
+          :imageSize="imageSize"
+        />
+      </div>      
     </v-card>
   </div>
 </template>
@@ -550,5 +578,11 @@ function handleRowClick(_evt: MouseEvent, row: { item: { backend_data?: CardBack
     width: 100%;
     margin: 4px 0;
   }
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
 }
 </style>

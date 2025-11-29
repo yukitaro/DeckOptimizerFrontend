@@ -16,9 +16,10 @@ import {
 } from '@/utils/deckUtils'
 import MultiDeckComparison from './MultiDeckComparison.vue';
 import { getKnownArchetypes, importDeckDataFromUrl, storeDeck } from '@/api/deckClient';
+import { useSiteWideRouter } from '@/composables/useSitewideRouter';
 
-const router = useRouter()
 const route = useRoute()
+const router = useRouter()
 const isReady = ref(false)
 const tab = ref('Deck Import')
 const deckName = ref('')
@@ -68,6 +69,8 @@ const selectedArchetypeFilter = ref('All')
 const listOfArchetypes = ref([])
 const showToast = ref(false);
 const toastMessage = ref('');
+
+const { routeToCardMetadata } = useSiteWideRouter();
 
 // Grouped cards for deck display tabs
 const groupedCards = computed(() => {
@@ -159,17 +162,6 @@ const totalCards = computed(() => {
   )
 })
 
-
-// hmm, not sure what this was for, but it seems to be unused..
-/* const search = computed({
-  get() {
-    return route.query.search ?? ''
-  },
-  set(search) {
-    router.replace({ query: { search } })
-  }
-}) */
-
 const activeCard = computed(() => {
   // hoveredCard can be a single card object; otherwise return the first card object in the first deck slot
   return hoveredCard.value
@@ -178,13 +170,15 @@ const activeCard = computed(() => {
 });
 
 // Watchers
-watch(  [() => route.params.deckId, isReady],
+watch( [() => route.params.deckId, isReady],
   async ([deckId, ready]) => {
     if (deckId && ready) {
       const deck = listOfStoredDecks.value.find(d => d.deck_id === Number(deckId));
       if (deck) {
-        await switchToDeckDisplay(deck);
+        selectedDeck.value = deck
+        await handleSingleDeckChange(deck)
       } else {
+        selectedDeck.value = null;
         console.log('Error, deck not found for id from route:', deckId);
       }
     }
@@ -212,10 +206,13 @@ watch(tab, async (newTab) => {
   }
 });
 
-// 2️⃣ When the deck's cards load, clear any stale hover so we default to first card
 watch(cardsInSelectedDeck, (newVal) => {
   hoveredCard.value = null
 })
+
+watch(() => route.query.tab, tabName => {
+  if (tabName) tab.value = tabName
+}, { immediate: true })
 
 // Functions
 async function importCardsForDeck() {
@@ -260,9 +257,6 @@ async function importCardsForDeck() {
             deckFormat.value = '';
             console.log('Deck imported successfully!');
             reloadStoredDecks();
-            
-            // Refresh the deck list
-            //await getDecksFromDB();
         }
     } catch (error) {
         console.error('Import error:', error);
@@ -327,17 +321,13 @@ function confirmDelete(deck) {
 }
 
 // same for the Deck Management list
-async function switchToDeckDisplay(deck) {
-  try {
-    console.log('switchToDeckDisplay start', deck?.deck_id);
-    const cards = await handleSingleDeckChange(deck);
-    console.log('cards loaded for switchToDeckDisplay:', (cards || []).length);
-    hoveredCard.value = null;
-    tab.value = 'Deck Display 2';
-    console.log('activeCard after load:', activeCard.value);
-  } catch (err) {
-    console.error('switchToDeckDisplay failed', err);
-  }
+function switchToDeckDisplay(deck) {
+  if (!deck) return
+  router.push({
+    name: 'Decks',
+    params: { deckId: deck.deck_id },
+    query: { tab: 'Deck Display 2' }
+  })
 }
 
 // Helper to parse mainboard/sideboard into textarea format
@@ -436,16 +426,6 @@ const visibleSuggestions = computed(() => {
     .filter(a => a.name.toLowerCase().includes(q) || (a.format || '').toLowerCase().includes(q))
     .slice(0, suggestionsLimit);
 });
-
-function routeToCardMetadata(card) {
-  if (!card || !card.id) return;
-
-  console.log('Routing to CardMetadataDashboard for card:', card + 'with slug:', card.slug, 'set:', card.set_name, 'number in set:', card.number_in_set);
-  router.push({
-    name: 'CardMetadataDashboard',
-    query: { cardId: card.id, cardSlug: card.slug, cardSet: card.set_name, cardNumberInSet: card.number_in_set }
-  });
-}
 
 onMounted(async () => {
     await getDecksFromDB()
@@ -648,6 +628,11 @@ onMounted(async () => {
           item-value="deck_id"
           return-object
           label="Select a Deck"
+          @update:model-value="deck => {
+              if (deck) {
+                router.push({ name: 'Decks', params: { deckId: deck.deck_id }, query: { tab: 'Deck Display 2' } })
+              }
+          }"
           :menu-props="{ maxHeight: '300px' }"
           hide-details/>
 
@@ -712,10 +697,17 @@ onMounted(async () => {
           </div>
         </v-card>
         <v-card v-if="tab === 'Deck Display 2'" class="pa-4 custom-card-background">
-<!-- 🔍 Deck Selector -->
+          <!-- 🔍 Deck Selector -->
           <v-text-field v-model="deckSearch" label="Search decks" placeholder="Goblin, Rakdos, Mono Blue Terror…" clearable class="mb-4" />
           <v-autocomplete v-model="selectedDeck" :items="filteredDecks" item-title="deck_name" item-value="deck_id" return-object label="Select a Deck"
-            class="mb-4" @update:model-value="handleSingleDeckChange">
+            class="mb-4" @update:model-value="deck => {
+                          if (deck) {
+                              router.push({
+                                name: 'Decks', 
+                                params: { deckId: deck.deck_id },
+                                query: { tab: 'Deck Display 2' }
+                              })
+                          }}">
             <template #item="{ item, props }">
               <v-list-item v-bind="props" :key="item.deck_id">
                 <v-list-item-title>{{ item.deck_name }}</v-list-item-title>
@@ -746,52 +738,51 @@ onMounted(async () => {
               <p class="preview-name">{{ activeCard.name || 'Hover a card…' }}</p>
             </div>
 
-    <!-- 📜 Deck List -->
-    <div class="card-list-container">
-      <div class="card-list">
-        <div v-for="type in typeHierarchy" :key="type">
-          <h3>{{ type }}</h3>
-          <div v-if="groupedCards[type].length">
-            <div
-              v-for="card in groupedCards[type]"
-              :key="card.id"
-              class="card-line"
-            >
-              <!-- Hidden SmartCardImage for URL testing -->
-              <SmartCardImage
-                v-if="card.image_url_to_use"
-                :src="card.image_url_to_use"
-                :card-name="card.name"
-                style="display: none;"
-              />
-              
-              <p>
-                <strong>{{ card.card_count }}x</strong>
-                <span class="card-name" @click="routeToCardMetadata(card)" @mouseover="hoveredCard = card">
-                  {{ card.name }}
-                </span>
-                —
-                <span class="card-type">{{ card.type }}</span>
-                <span v-if="card.mana_cost">
-                  <Colors :mana_cost="getNumericalManaCost(card.mana_cost)" />
-                </span>
-                <span
-                  v-for="color in getColorManaCost(card.mana_cost)"
-                  :key="color"
-                >
-                  <Colors :color_name="mapColorCodeToName(color)" />
-                </span>
-              </p>
+            <!-- 📜 Deck List -->
+            <div class="card-list-container">
+              <div class="card-list">
+                <div v-for="type in typeHierarchy" :key="type">
+                  <h3>{{ type }}</h3>
+                  <div v-if="groupedCards[type].length">
+                    <div
+                      v-for="card in groupedCards[type]"
+                      :key="card.id"
+                      class="card-line"
+                    >
+                      <!-- Hidden SmartCardImage for URL testing -->
+                      <SmartCardImage
+                        v-if="card.image_url_to_use"
+                        :src="card.image_url_to_use"
+                        :card-name="card.name"
+                        style="display: none;" />
+                      
+                      <p>
+                        <strong>{{ card.card_count }}x</strong>
+                        <span class="card-name" @click="routeToCardMetadata(card, selectedDeck.deck_id, tab)" @mouseover="hoveredCard = card">
+                          {{ card.name }}
+                        </span>
+                        —
+                        <span class="card-type">{{ card.type }}</span>
+                        <span v-if="card.mana_cost">
+                          <Colors :mana_cost="getNumericalManaCost(card.mana_cost)" />
+                        </span>
+                        <span
+                          v-for="color in getColorManaCost(card.mana_cost)"
+                          :key="color"
+                        >
+                          <Colors :color_name="mapColorCodeToName(color)" />
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                  <p v-else class="empty-group">
+                    No {{ type.toLowerCase() }} cards
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
-          <p v-else class="empty-group">
-            No {{ type.toLowerCase() }} cards
-          </p>
-        </div>
-      </div>
-    </div>
-  </div>
-</v-card>
+        </v-card>
 <v-card v-if="tab === 'Deck Management'" class="pa-6 custom-card-background">
   <v-snackbar v-model="showToast" :timeout="3000">
     {{ toastMessage }}

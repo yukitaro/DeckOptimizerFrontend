@@ -1,6 +1,5 @@
 import { Deck, Card } from '@/utils/types'
 import { nextTick, ref, watch  } from 'vue'
-
 import { deleteDeckById, getAllDeckArchetypes, getCardsForDeckAPI, getStoredDecks, retrieveCardsForDeck, retrieveCardsForDeckByBoardGroup, retrieveSideboardForDeck } from '@/api/deckClient';
 
 const cardsInSelectedDeck = ref<Card[][]>([])
