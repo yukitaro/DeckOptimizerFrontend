@@ -1,17 +1,12 @@
 import { laravel_api as api } from './client'
-import type { Issue } from '@/utils/types'
+import type { Issue, IssueForm } from '@/utils/types'
 
-async function fetchIssues() : Promise<Issue[]> {
+async function fetchIssues() : Promise<IssueForm[]> {
     const response = await api.get('/api/issues');
     return response.data;
 }
 
-async function createIssue(payload: {
-                                      title: string;
-                                      description: string;
-                                      priority: string;
-                                      type: string;
-                                     }) : Promise<Issue> {
+async function createIssue(payload: Partial<IssueForm>) : Promise<Issue> {
     const response = await api.post('/api/issues', payload);
     return response.data;
 }

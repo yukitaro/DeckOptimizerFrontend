@@ -1,7 +1,14 @@
 <template>
   <v-container>
     <h1 class="text-h5 font-weight-bold mb-4">Admin Console</h1>
-
+    <v-row>
+      <v-col cols="12" md="6">
+        <v-card to="/issues" class="hoverable">
+          <v-card-title>Issue Management Dashboard</v-card-title>
+          <v-card-text>View and manage issues, defects, enhancement/feature requests, etc.</v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
     <v-row>
       <v-col cols="12" md="6">
         <v-card to="/adminconsole/image-coverage" class="hoverable">

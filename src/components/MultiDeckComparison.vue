@@ -7,8 +7,6 @@ import type { Deck, MatrixRow, ShoppingListRow } from '@/utils/types'
 import { useCsvExport, type CsvColumn } from '../composables/useCsvExport'
 import { retrieveCollections, retrieveNormalizedInventory } from '@/api/collection'
 
-const base_api_url = import.meta.env.VITE_LARAVEL_API_BASE_URL;
-
 const {
   cardsInSelectedDeck,
   cardsInSideboardOfSelectedDeck,
@@ -131,16 +129,11 @@ async function handleSelectionChange(newSelection: Deck[]) {
     return Promise.resolve() // If cards already loaded
   })
 
-  // 🔥 WAIT for ALL cards to be loaded
   await Promise.all(cardFetchPromises)
   
-  // 🔥 Add another nextTick to ensure reactive updates are complete
   await nextTick()
   const allDeckCards = decks.value.flatMap(deck => deck.cards)
   const uniqueNames = Array.from(new Set(allDeckCards.map(card => card.name.trim())))
-
-  console.log(JSON.stringify(uniqueNames));
-  //uniqueCardsInComparison.value = uniqueNames
 
   const collectionIds = collectionsForInventory.value.map(c => c.id);
 
@@ -149,30 +142,23 @@ async function handleSelectionChange(newSelection: Deck[]) {
     collection_ids: collectionIds // Pass the extracted IDs
   })
 
-console.log('🧪 Inventory keys:', Object.keys(normalizedInventory.value))
-console.log('🧪 Deck card names:', uniqueNames)  
+  normalizedInventory.value = Object.fromEntries(
+    response.data.map((entry: { name: any }) => [entry.name, entry])
+  )
+
+  // Handle both array and object responses
+  let inventoryEntries
+  if (Array.isArray(response.data)) {
+    // If it's an array (as the backend should return)
+    inventoryEntries = response.data
+  } else {
+    // If it's an object with numeric keys (what you're seeing)
+    inventoryEntries = Object.values(response.data)
+  }
 
   normalizedInventory.value = Object.fromEntries(
-  response.data.map((entry: { name: any }) => [entry.name, entry])
-)
-
-console.log('🔍 Raw API response:', response.data)
-
-// Handle both array and object responses
-let inventoryEntries
-if (Array.isArray(response.data)) {
-  // If it's an array (as the backend should return)
-  inventoryEntries = response.data
-} else {
-  // If it's an object with numeric keys (what you're seeing)
-  inventoryEntries = Object.values(response.data)
-}
-
-normalizedInventory.value = Object.fromEntries(
-  inventoryEntries.map((entry: any) => [entry.name, entry])
-)
-
-console.log('📦 Processed inventory:', normalizedInventory.value)
+    inventoryEntries.map((entry: any) => [entry.name, entry])
+  )
 }
 
 function getInventoryCount(card: any): number {
@@ -360,8 +346,6 @@ const fetchCollections = async () => {
 }
 
 onMounted(() => {
-  console.log('🔥 collectionsForInventory on mount:', collectionsForInventory.value)
-  console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥:', collectionsForInventory.value)
   fetchArchetypes()
   fetchCollections()
 })

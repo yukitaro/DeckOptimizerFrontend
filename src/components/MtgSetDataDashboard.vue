@@ -3,9 +3,6 @@ import { ref, computed, onMounted } from 'vue'
 import { fetchMagicSetData } from '@/api/dashboard'
 import { symbol_api as baseSymbolUrl } from '@/api/client'
 
-console.log('Symbol Base URL:', baseSymbolUrl)
-console.log('All env:', import.meta.env)
-
 const symbolBaseUrl = baseSymbolUrl
 const sets = ref([])
 const sortKey = ref('release_date')

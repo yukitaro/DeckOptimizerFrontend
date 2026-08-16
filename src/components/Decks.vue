@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Colors from './Colors.vue';
 import SmartCardImage from './SmartCardImage.vue';
+import SmartCardImageStack from './SmartCardImageStack.vue';
 
 import DeckComparison from './DeckComparison.vue';
 import { useDeckData } from '@/composables/useDeckData'
@@ -51,7 +52,7 @@ const filteredDecks = computed(() => {
   })
 })
 
-const tabLabels = ['Deck Import', 'Card List Test', 'Multi Deck Compare', 'Deck Display', 'Deck Display 2', 'Deck Management','Deck Comparison', 'Deck Swapping'];
+const tabLabels = ['Deck Import', 'Card List Test', 'Multi Deck Compare', 'Deck Display', 'Deck Display 2', 'Deck Display 3', 'Deck Management','Deck Comparison', 'Deck Swapping'];
 const typeHierarchy = ['Creature', 'Artifact', 'Instant', 'Sorcery', 'Enchantment', 'Land'];
 
 const archetypeQuery = ref('');
@@ -783,6 +784,76 @@ onMounted(async () => {
             </div>
           </div>
         </v-card>
+        <v-card v-if="tab === 'Deck Display 3'" class="pa-4 custom-card-background">
+          <!-- 🔍 Deck Selector -->
+          <v-text-field v-model="deckSearch" label="Search decks" placeholder="Goblin, Rakdos, Mono Blue Terror…" clearable class="mb-4" />
+          <v-autocomplete v-model="selectedDeck" :items="filteredDecks" item-title="deck_name" item-value="deck_id" return-object label="Select a Deck"
+            class="mb-4" @update:model-value="deck => {
+                          if (deck) {
+                              router.push({
+                                name: 'Decks', 
+                                params: { deckId: deck.deck_id },
+                                query: { tab: 'Deck Display 3' }
+                              })
+                          }}">
+            <template #item="{ item, props }">
+              <v-list-item v-bind="props" :key="item.deck_id">
+                <v-list-item-title>{{ item.deck_name }}</v-list-item-title>
+                <v-list-item-subtitle v-if="item.description">
+                  {{ item.description }}
+                </v-list-item-subtitle>
+              </v-list-item>
+            </template>
+            <template #selection="{ item }">
+              <span>{{ item.deck_name }}</span>
+            </template>
+          </v-autocomplete>
+
+          <!-- 🧠 Deck Display -->
+          <div class="deck-display-flex">
+            <!-- 👁️ Preview Pane -->
+            <div class="preview-pane">
+              <SmartCardImage
+                v-if="activeCard.image_url_to_use"
+                :src="activeCard.image_url_to_use"
+                :card-name="activeCard.name || 'Unknown Card'"
+                alt="Card preview"
+                width="300"
+                aspect-ratio="0.714"
+                class="mb-2"
+              />
+              <div v-else class="image-fallback mb-2">No preview available</div>
+              <p class="preview-name">{{ activeCard.name || 'Hover a card…' }}</p>
+            </div>
+
+            <!-- 📜 Deck List -->
+            <div class="card-list-container">
+              <div class="card-list">
+                <div v-for="type in typeHierarchy" :key="type">
+                  <h3>{{ type }}</h3>
+                  <div v-if="groupedCards[type].length">
+                    <div
+                      v-for="card in groupedCards[type]"
+                      :key="card.id"
+                      class="card-line">
+                      <v-row>
+                        <SmartCardImageStack
+                          :src="card.image_url_to_use"
+                          :card-name="card.name"
+                          :count="card.card_count"
+                          overlap="5"
+                          width="150" />
+                      </v-row>
+                    </div>
+                  </div>
+                  <p v-else class="empty-group">
+                    No {{ type.toLowerCase() }} cards
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </v-card>        
 <v-card v-if="tab === 'Deck Management'" class="pa-6 custom-card-background">
   <v-snackbar v-model="showToast" :timeout="3000">
     {{ toastMessage }}

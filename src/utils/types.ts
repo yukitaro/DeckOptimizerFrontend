@@ -138,7 +138,33 @@ export interface Issue {
   updated_at: string
   status: string
   priority: string
+  type: string
   issueAssigneeId: number
   issueCreatorId: number
   assignee?: User
+  site_mode: SiteMode | null
+  site_feature_slug?: string | null
+}
+
+export interface IssueForm {
+  title: string
+  description: string
+  type: string | null
+  priority: 'Low' | 'Medium' | 'High' | 'Critical' | ''
+  site_mode: string | null
+  feature_slug: string | null   // machine-friendly key for the feature
+}
+
+export type SiteMode = string
+
+export interface SiteFeature {
+  id?: number
+  site_mode: SiteMode
+  slug: string
+  feature_name: string
+  description?: string
+  is_enabled?: boolean
+  is_global?: boolean
+  sort_order?: number
+  meta?: Record<string, any>
 }
