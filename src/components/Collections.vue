@@ -1,293 +1,251 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, toRaw, watch, watchEffect } from 'vue'
-import { createNewCollection, deleteCollectionFromServer, importCollectionFromExternalSource, pollServerForImportStatus, retrieveCollections, viewCardsInCollection } from '@/api/collection';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import type { ProcessedSetData } from '@/composables/useMagicSetData'
+import { 
+  createNewCollection, 
+  deleteCollectionFromServer, 
+  importCollectionFromExternalSource, 
+  pollServerForImportStatus, 
+  retrieveCollections, 
+  viewCardsInCollection 
+} from '@/api/collection'
 import { useSiteWideRouter } from '@/composables/useSitewideRouter'
+import { useSetData } from '@/composables/useMagicSetData'
 
-const { routeToCardMetadata } = useSiteWideRouter();
+const { routeToCardMetadata } = useSiteWideRouter()
 
-const csvFile = ref(null)
-const listOfCollections = ref([])
-const selectedCollection = ref(1)
+const csvFile = ref<File | null>(null)
+const listOfCollections = ref<any[]>([])
+const selectedCollection = ref<number | null>(null)
 const selectedMode = ref('merge')
-const importSummary = ref(null)
+const importSummary = ref<string | null>(null)
 const isImporting = ref(false)
 const toastMessage = ref('')
 const toastColor = ref('success')
-const cardsInCollection = ref([])
+const showToast = ref(false)
+
+const cardsInCollection = ref<any[]>([])
 const currentPage = ref(1)
 const hasMore = ref(true)
 const isLoading = ref(false)
 const shouldExcludeMultiColor = ref(false)
 
 const searchTerm = ref('')
-const sortKey = ref('name')
-const sortDirection = ref('asc')
+const debouncedSearchTerm = ref('')
+
+const sortKey = ref('price')
+const sortDirection = ref('desc')
 const activeColors = ref<string[]>([])
 const groupByName = ref(false)
 
-// for collection deletion
+// Collection deletion state
 const deleteDialog = ref(false)
 const deleteSnackbar = ref(false)
-const collectionToDelete = ref(null)
+const collectionToDelete = ref<any>(null)
+
+const selectedSets = ref<ProcessedSetData[]>([])
+const { setData, setNameMap, loadSetData, isLoading: isSetDataLoading } = useSetData()
+
+const selectedRarities = ref(['common', 'uncommon', 'rare', 'mythic'])
+const rarities = [
+  { value: 'common', label: 'Common', color: 'grey', icon: 'mdi-circle' },
+  { value: 'uncommon', label: 'Uncommon', color: 'blue-grey', icon: 'mdi-triangle' },
+  { value: 'rare', label: 'Rare', color: 'amber', icon: 'mdi-diamond' },
+  { value: 'mythic', label: 'Mythic', color: 'deep-orange', icon: 'mdi-star' }
+]
+
+const globalColorCounts = ref<Record<string, number>>({ W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 })
+const tab = ref('Create Collection')
+const tabLabels = ['Create Collection', 'Add to Collections', 'View Collections']
+
+const newCollectionFields = reactive({
+  name: '',
+  description: ''
+})
+
+const scrollAnchor = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+
+const modeOptions = [
+  { title: 'Merge with Existing', value: 'merge', subtitle: 'Add to existing card counts' },
+  { title: 'Set Count', value: 'set', subtitle: 'Override existing card counts' },
+  { title: 'Create New', value: 'new', subtitle: 'Create new entries only' }
+]
+
+const queryParams = computed(() => ({
+  sort: {
+    key: sortKey.value,
+    direction: sortDirection.value
+  },
+  filters: {
+    colors: activeColors.value,
+    rarities: selectedRarities.value.join(','),
+    excludeMultiColor: shouldExcludeMultiColor.value,
+    search: debouncedSearchTerm.value,
+  },
+  page: currentPage.value
+}))
+
+// Debounce search term changes
+let searchTimeout: ReturnType<typeof setTimeout>
+watch(searchTerm, (newVal) => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => {
+    debouncedSearchTerm.value = newVal
+  }, 350)
+})
+
+// Reset to page 1 when filter parameters change
+watch(
+  [debouncedSearchTerm, activeColors, selectedRarities, shouldExcludeMultiColor, sortKey, sortDirection],
+  () => {
+    if (currentPage.value !== 1) {
+      currentPage.value = 1
+    } else {
+      refreshFilteredCards()
+    }
+  }
+)
+
+// Fetch cards when page changes directly
+watch(currentPage, () => {
+  if (currentPage.value === 1) {
+    refreshFilteredCards()
+  } else {
+    loadMoreCards()
+  }
+})
+
+onMounted(async () => {
+  await loadSetData()
+  await fetchCollections()
+  setupIntersectionObserver()
+})
+
+function setupIntersectionObserver() {
+  if (observer) observer.disconnect()
+
+  nextTick(() => {
+    if (!scrollAnchor.value) return
+    observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && hasMore.value && !isLoading.value && cardsInCollection.value.length > 0) {
+        currentPage.value++
+      }
+    }, { root: null, threshold: 0.5 })
+
+    observer.observe(scrollAnchor.value)
+  })
+}
 
 function onColorFilterChange(newColors: string[]) {
   activeColors.value = newColors
-  refreshFilteredCards()
 }
 
 function excludeMultiColor() {
-    shouldExcludeMultiColor.value = !shouldExcludeMultiColor.value
-    refreshFilteredCards()
+  shouldExcludeMultiColor.value = !shouldExcludeMultiColor.value
 }
-
-const globalColorCounts = ref<Record<string, number>>({ W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 })
-
-const tab = ref('Create Collection')
-const tabLabels = ['Create Collection', 'Add to Collections', 'View Collections'];
-
-const newCollectionFields = reactive({
-    name: '',
-    description: ''
-})
-
-const scrollAnchor = ref(null)
-
-const modeOptions = [
-    { title: 'Merge with Existing', value: 'merge', subtitle: 'Add to existing card counts' },
-    { title: 'Set Count', value: 'set', subtitle: 'Override existing card counts' },
-    { title: 'Create New', value: 'new', subtitle: 'Create new entries only' }
-]
 
 const submitImport = async () => {
-    if (!csvFile.value || !selectedCollection.value) return
-    
-    isImporting.value = true
-    const formData = new FormData()
-    formData.append('csv', csvFile.value)
-    formData.append('collection_id', selectedCollection.value)
-    formData.append('mode', selectedMode.value)
+  if (!csvFile.value || !selectedCollection.value) return
+  
+  isImporting.value = true
+  const formData = new FormData()
+  formData.append('csv', csvFile.value)
+  formData.append('collection_id', String(selectedCollection.value))
+  formData.append('mode', selectedMode.value)
 
-    const response = await importCollectionFromExternalSource(formData)
-    //importSummary.value = response.data.summary || 'Import completed successfully.'
-    pollImportStatus(selectedCollection.value)
+  await importCollectionFromExternalSource(formData)
+  pollImportStatus(selectedCollection.value)
 }
 
-const pollImportStatus = async (collectionId) => {
+const pollImportStatus = async (collectionId: number) => {
   const interval = setInterval(async () => {
     const { data } = await pollServerForImportStatus(collectionId)
     if (data.status === 'complete') {
       clearInterval(interval)
       toastMessage.value = 'Import complete!'
+      showToast.value = true
       isImporting.value = false
-      //await fetchCollectionCards(collectionId)
     } else if (data.status === 'failed') {
       clearInterval(interval)
       toastMessage.value = 'Import failed. Check logs for details.'
+      toastColor.value = 'error'
+      showToast.value = true
+      isImporting.value = false
     }
   }, 3000)
 }
 
 const createCollection = async () => {
-    if (!newCollectionFields.name.trim()) return
-    
-    try {
-        const response = await createNewCollection({
-            name: newCollectionFields.name,
-            description: newCollectionFields.description
-        })
-        
-        // Reset form
-        newCollectionFields.name = ''
-        newCollectionFields.description = ''
-        
-        // Refresh collections list
-        await fetchCollections()
-        
-        console.log('Collection created:', response.data)
-    } catch (error) {
-        console.error('Error creating collection:', error)
-    }
+  if (!newCollectionFields.name.trim()) return
+  try {
+    const response = await createNewCollection({
+      name: newCollectionFields.name,
+      description: newCollectionFields.description
+    })
+    newCollectionFields.name = ''
+    newCollectionFields.description = ''
+    await fetchCollections()
+  } catch (error) {
+    console.error('Error creating collection:', error)
+  }
 }
 
 const viewCollection = async (collectionId: number) => {
-    selectedCollection.value = collectionId
-    cardsInCollection.value = []
+  selectedCollection.value = collectionId
+  cardsInCollection.value = []
+  hasMore.value = true
+  
+  if (currentPage.value !== 1) {
     currentPage.value = 1
-    hasMore.value = true
-    try {
-        const response = await viewCardsInCollection(collectionId)
-
-        const meta = response.data.meta
-        hasMore.value = meta.current_page < meta.last_page
-
-        if (meta.is_complete) {
-            hasMore.value = false
-        }
-
-        // Handle paginated response - extract the data array
-        if (response.data && response.data.data && Array.isArray(response.data.data)) {
-            cardsInCollection.value = response.data.data
-        } else if (Array.isArray(response.data)) {
-            // Fallback if it's already an array
-            cardsInCollection.value = response.data
-        } else {
-            console.error('Unexpected response structure:', response.data)
-            cardsInCollection.value = []
-        }
-        
-        console.log('Cards loaded:', cardsInCollection.value.length)
-        computeGlobalColorCounts(cardsInCollection.value)
-        tab.value = 'View Collections'
-    } catch (error) {
-        console.error('Error fetching collection cards:', error)
-    }
+  } else {
+    await refreshFilteredCards()
+  }
+  
+  tab.value = 'View Collections'
 }
 
 const fetchCollections = async () => {
-    try {
-        const response = await retrieveCollections()
-        listOfCollections.value = response.data
-    } catch (error) {
-        console.error('Error fetching collections:', error)
-    }
+  try {
+    const response = await retrieveCollections()
+    listOfCollections.value = response.data
+  } catch (error) {
+    console.error('Error fetching collections:', error)
+  }
 }
-
-onMounted(() => {
-    fetchCollections()
-
-    watchEffect(() => {
-        if (cardsInCollection.value.length > 0 && scrollAnchor.value) {
-            nextTick(() => {
-            const observer = new IntersectionObserver((entries) => {
-                if (entries[0].isIntersecting && hasMore.value && !isLoading.value) {
-                console.log('Scroll anchor intersected')
-                loadMoreCards()
-                }
-            }, {
-                root: null, // use viewport
-                threshold: 0.5
-            })
-
-            observer.observe(scrollAnchor.value)
-            })
-        }}
-    )
-})
-
-const filteredAndSortedCards = computed(() => {
-  let cards = cardsInCollection.value || []
-
-  // 🔍 Search filter
-  if (searchTerm.value) {
-    cards = cards.filter(card => {
-      const name = card.card_from_set?.name || ''
-      return name.toLowerCase().includes(searchTerm.value.toLowerCase())
-    })
-  }
-
-  // 🎨 Color filter
-  if (activeColors.value.length > 0) {
-    cards = cards.filter(card => {
-        const raw = card.card_from_set?.colorIdentities || ''
-        const codes = typeof raw === 'string'
-        ? raw.split(',').map(c => c.trim())
-        : Array.isArray(raw)
-            ? raw
-            : []
-
-        const isSubset = codes.every(code => activeColors.value.includes(code))
-
-        return isSubset
-    })
-
-    console.log('Color identities:', cards.map(c => c.card_from_set?.colorIdentities))
-  }
-
-  // 🔀 Sorting
-  return cards.sort((a, b) => {
-    if (sortKey.value === 'name') {
-      const nameA = a.card_from_set?.name || ''
-      const nameB = b.card_from_set?.name || ''
-      return nameA.localeCompare(nameB)
-    }
-    if (sortKey.value === 'count') return b.card_count - a.card_count
-    if (sortKey.value === 'condition') {
-      const condA = a.condition || ''
-      const condB = b.condition || ''
-      return condA.localeCompare(condB)
-    }
-    return 0
-  })
-})
-
-const groupedCards = computed(() => {
-  if (!groupByName.value) return filteredAndSortedCards.value
-
-  const map = new Map<string, any>()
-
-  for (const card of filteredAndSortedCards.value) {
-    const name = card.card_from_set?.name || 'Unknown'
-
-    if (!map.has(name)) {
-      map.set(name, {
-        ...card,
-        card_count: card.card_count,
-        variants: [card]
-      })
-    } else {
-      const existing = map.get(name)
-      existing.card_count += card.card_count
-      existing.variants.push(card)
-    }
-  }
-
-  return Array.from(map.values())
-})
-
-const queryParams = computed(() => ({
-    sort: {
-        key: sortKey.value,
-        direction: sortDirection.value
-    },
-    filters: {
-        colors: activeColors.value,
-        excludeMultiColor: shouldExcludeMultiColor.value,
-        search: searchTerm.value,
-        //sets: activeSets.value,
-        //rarities: activeRarities.value
-    },
-    page: currentPage.value
-}))
-
-watch(queryParams, async () => {
-    await refreshFilteredCards()
-})
 
 async function refreshFilteredCards() {
-  const response = await viewCardsInCollection(selectedCollection.value, queryParams.value)
-  cardsInCollection.value = response.data.data
-  //currentPage.value = 2
-  hasMore.value = response.data.meta.current_page < response.data.meta.last_page
-}
-
-const loadMoreCards = async () => {
-  if (!hasMore.value || isLoading.value) return
+  if (!selectedCollection.value) return
 
   isLoading.value = true
   try {
-    currentPage.value++
-    const response = await viewCardsInCollection(selectedCollection.value, {
-        params: queryParams.value
-    })
+    const response = await viewCardsInCollection(selectedCollection.value, queryParams.value)
+    cardsInCollection.value = response.data.data || []
+    
+    const meta = response.data.meta
+    hasMore.value = meta ? meta.current_page < meta.last_page : false
+    computeGlobalColorCounts(cardsInCollection.value)
+  } catch (error) {
+    console.error('Failed to fetch filtered cards:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const loadMoreCards = async () => {
+  if (!hasMore.value || isLoading.value || !selectedCollection.value) return
+
+  isLoading.value = true
+  try {
+    const response = await viewCardsInCollection(selectedCollection.value, queryParams.value)
     const newCards = response.data.data || []
 
     const cardMap = new Map(cardsInCollection.value.map(card => [card.id, card]))
-    newCards.forEach(card => cardMap.set(card.id, card))
+    newCards.forEach((card: any) => cardMap.set(card.id, card))
     cardsInCollection.value = Array.from(cardMap.values())
-    //cardsInCollection.value.push(...newCards)
 
     const meta = response.data.meta
-    hasMore.value = meta.current_page < meta.last_page
+    hasMore.value = meta ? meta.current_page < meta.last_page : false
   } catch (error) {
     console.error('Error loading cards:', error)
   } finally {
@@ -320,26 +278,93 @@ function computeGlobalColorCounts(cards: any[]) {
   globalColorCounts.value = counts
 }
 
-function confirmDelete(collection) {
-    collectionToDelete.value = collection;
-    deleteDialog.value = true;
+function confirmDelete(collection: any) {
+  collectionToDelete.value = collection
+  deleteDialog.value = true
 }
 
 async function deleteCollection() {
   try {
-    await deleteCollectionFromServer(collectionToDelete.value.id);
+    await deleteCollectionFromServer(collectionToDelete.value.id)
     listOfCollections.value = listOfCollections.value.filter(
       c => c.id !== collectionToDelete.value.id
-    );
-    deleteSnackbar.value = true;
+    )
+    deleteSnackbar.value = true
   } catch (error) {
-    console.error('Failed to delete collection:', error);
-    // Optional: use a toast library or fallback UI
+    console.error('Failed to delete collection:', error)
   } finally {
-    deleteDialog.value = false;
-    collectionToDelete.value = null;
+    deleteDialog.value = false
+    collectionToDelete.value = null
   }
 }
+
+const filteredAndSortedCards = computed(() => {
+  let cards = cardsInCollection.value ? [...cardsInCollection.value] : []
+
+  // 🔍 Client-side Search filter (if handling locally)
+  if (searchTerm.value) {
+    cards = cards.filter(card => {
+      const name = card.card_from_set?.name || ''
+      return name.toLowerCase().includes(searchTerm.value.toLowerCase())
+    })
+  }
+
+  // 🎨 Client-side Color filter
+  if (activeColors.value.length > 0) {
+    cards = cards.filter(card => {
+      const raw = card.card_from_set?.colorIdentities || ''
+      const codes = typeof raw === 'string'
+        ? raw.split(',').map(c => c.trim())
+        : Array.isArray(raw)
+          ? raw
+          : []
+
+      return codes.every(code => activeColors.value.includes(code))
+    })
+  }
+
+  // 🔀 Client-side Sorting
+  return cards.sort((a, b) => {
+    if (sortKey.value === 'name') {
+      const nameA = a.card_from_set?.name || ''
+      const nameB = b.card_from_set?.name || ''
+      return sortDirection.value === 'asc' 
+        ? nameA.localeCompare(nameB) 
+        : nameB.localeCompare(nameA)
+    }
+    if (sortKey.value === 'count') {
+      return sortDirection.value === 'asc' 
+        ? a.card_count - b.card_count 
+        : b.card_count - a.card_count
+    }
+    return 0
+  })
+})
+
+const groupedCards = computed(() => {
+  const cards = filteredAndSortedCards.value || []
+  if (!groupByName.value) return cards
+
+  const map = new Map<string, any>()
+
+  for (const card of cards) {
+    const name = card.card_from_set?.name || 'Unknown'
+
+    if (!map.has(name)) {
+      map.set(name, {
+        ...card,
+        card_count: card.card_count,
+        variants: [card]
+      })
+    } else {
+      const existing = map.get(name)
+      existing.card_count += card.card_count
+      existing.variants.push(card)
+    }
+  }
+
+  return Array.from(map.values())
+})
 </script>
 
 <template>
@@ -684,6 +709,7 @@ async function deleteCollection() {
                                         <v-select
                                             v-model="sortKey"
                                             :items="[
+                                                { title: 'Price', value: 'price' },
                                                 { title: 'Name', value: 'name' },
                                                 { title: 'Count', value: 'count' },
                                                 { title: 'Condition', value: 'condition' }
@@ -727,7 +753,7 @@ async function deleteCollection() {
                             <v-col cols="12" md="6">
                                 <h3 class="text-h6 mb-3">Rarity</h3>
                                 <div class="rarity-filters">
-                                <v-chip-group v-model="selectedRarity" multiple>
+                                <v-chip-group v-model="selectedRarities" multiple>
                                     <v-chip  v-for="rarity in rarities" :key="rarity.value" :value="rarity.value" :color="rarity.color" variant="outlined" filter>
                                     <v-icon :icon="rarity.icon" start></v-icon>
                                     {{ rarity.label }}
@@ -735,32 +761,47 @@ async function deleteCollection() {
                                 </v-chip-group>
                                 </div>
                             </v-col>
-                            </v-row>                                
+                            </v-row>
+                            <v-row>
+                                <!-- Set Selection -->
+                                <v-col cols="12" md="8">
+                                    <v-combobox
+                                    v-model="selectedSets"
+                                    :items="setData"
+                                    label="Magic Sets"
+                                    placeholder="Select sets to search in..."
+                                    variant="outlined"
+                                    density="comfortable"
+                                    multiple
+                                    chips
+                                    clearable
+                                    />
+                                </v-col>                                
+                            </v-row>
+                            <v-row>
+                                <div class="filter-actions mt-4">
+                                    <v-btn 
+                                        @click="searchAgainstSetData"
+                                        color="primary"
+                                        size="large"
+                                        prepend-icon="mdi-magnify"
+                                        class="mr-3">
+                                        Search Cards
+                                    </v-btn>
+                                </div>                                
+                            </v-row>      
                             </v-card-text>
                         </v-card>
 
                         <!-- Cards Grid -->
                         <div class="card-grid">
-                            <v-card v-for="card in groupedCards" 
-                                :key="card.id" class="card-item" variant="outlined">
-                                <v-img @click="routeToCardMetadata(card)"
-                                    :src="card.card_from_set?.image_url || 'https://via.placeholder.com/200x280'" 
-                                    :alt="card.card_from_set?.name || 'Card'"
-                                    aspect-ratio="5/7"
-                                ></v-img>
-                                <v-card-text class="pa-2">
-                                    <p class="text-body-2 font-weight-bold">
-                                        {{ card.card_from_set?.name || 'Unknown Card' }} 
-                                        <v-chip size="x-small" color="primary">{{ card.card_count }}</v-chip>
-                                    </p>
-                                    <p class="text-caption text-medium-emphasis">
-                                        {{ card.card_from_set?.set_name || 'Unknown Set' }}
-                                    </p>
-                                    <p v-if="card.is_foil" class="text-caption text-warning">
-                                        ✨ Foil
-                                    </p>
-                                </v-card-text>
-                            </v-card>
+                            <CardDisplay
+                                v-for="card in groupedCards"
+                                :key="card.id"
+                                :card="card"
+                                class="card-item"
+                                viewMode="grid"
+                                imageSize="lg" />
                         </div>
                         <div ref="scrollAnchor" style="height: 20px; background: red;"></div>
                         <!-- No Results -->

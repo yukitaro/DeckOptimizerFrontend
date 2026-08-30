@@ -82,8 +82,8 @@ const authRoutes = [
 
 const routes = [
   { path: '/', component: CardListingVuetify },
-  { path: '/decks', component: Decks },
   { path: '/decks/:deckId?', name: 'Decks', component: Decks, props: true },
+  { path: '/decks', component: Decks },
   { path: '/collections', component: Collections },
   { path: '/settings', component: Settings },
   { path: '/login', component: Login },

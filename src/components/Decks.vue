@@ -428,6 +428,27 @@ const visibleSuggestions = computed(() => {
     .slice(0, suggestionsLimit);
 });
 
+async function importFromClipboard() {
+    try {
+        const text = await navigator.clipboard.readText();
+        const data = JSON.parse(text);
+
+        deckName.value = data.deckName || "";
+        deckDescription.value = data.deckDescription || "";
+        deckSomething.value = data.deckData || "";
+        externalLink.value = data.deckLink || "";
+        deckFormat.value = data.format || "";
+        selectedArchetypeName.value = data.deckArchetype || "";
+        selectedArchetypeId.value = data.archetypeId || null;
+        deckVisibility.value = data.deckVisibility || "private";
+
+        console.log("Deck imported from clipboard:", data);
+    } catch (err) {
+        console.error("Clipboard import failed:", err);
+        alert("Clipboard does not contain valid deck JSON.");
+    }
+}
+
 onMounted(async () => {
     await getDecksFromDB()
     await getKnownArchetypesFromDB()
@@ -507,6 +528,9 @@ onMounted(async () => {
                             Scrape
                           </v-btn>
                         </v-col>
+                        <v-col cols="3">
+                          <v-btn @click="importFromClipboard">Import Deck From Clipboard</v-btn>
+                        </v-col>
                       <v-row>
                         <v-col cols="6" class="position-relative">
                           <v-text-field
@@ -559,7 +583,7 @@ onMounted(async () => {
                       <h2>Recently Imported Decks</h2>
                       <div v-if="isLoadingRecentDecks">Loading decks…</div>
                       <ul v-else>
-                        <li v-for="deck in recentlyImportedDecks" :key="deck.id" @click="switchToDeckDisplay(deck)" style="cursor: pointer; color: blue;">
+                        <li v-for="deck in recentlyImportedDecks" :key="deck.deck_id" @click="switchToDeckDisplay(deck)" style="cursor: pointer; color: blue;">
                           {{ deck.deck_name }} ({{ deck.format }})
                         </li>
                       </ul>

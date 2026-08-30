@@ -36,7 +36,12 @@ const sizeMap = {
         <p class="text-caption text-medium-emphasis">
             {{ card.card_from_set?.set_name || card.set_name || 'Unknown Set' }}
         </p>
-        <p v-if="card.is_foil" class="text-caption text-warning">✨ Foil</p>
+        <p v-if="card.is_foil" class="text-caption text-warning">
+            ✨ {{ card.card_from_set?.card_metadata?.prices?.usd_foil ? `Foil Price: $${card.card_from_set.card_metadata.prices.usd_foil}` : 'Foil Price: N/A' }}
+        </p>
+        <p v-else>
+          {{ card.card_from_set?.card_metadata?.prices?.usd ? `Price: $${card.card_from_set.card_metadata.prices.usd}` : 'Price: N/A' }}
+        </p>
         </v-card-text>
     </v-card>
   </div>

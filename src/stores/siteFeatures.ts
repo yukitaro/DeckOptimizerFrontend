@@ -36,6 +36,7 @@ export const useSiteFeaturesStore = defineStore('siteFeatures', () => {
     // prefer API; fallback to local config endpoint
     try {
       const data = await fetchSiteFeatures() // returns SiteFeature[]
+      console.log('fetchSiteFeatures returned:', data)
       features.value = data
       isLoaded.value = true
     } catch (err) {
@@ -48,6 +49,7 @@ export const useSiteFeaturesStore = defineStore('siteFeatures', () => {
     features,
     isLoaded,
     byMode,
+    siteModes,
     getFeaturesForMode,
     fetchAll
   }

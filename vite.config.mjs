@@ -56,7 +56,7 @@ export default defineConfig({
     proxy: {
           // Proxy API calls to your Sail Laravel app
           '/api': {
-            target: 'http://192.168.4.46:80', // Sail exposes Laravel on http://localhost by default
+            target: 'http://laravel.test:80', // Sail exposes Laravel on http://localhost by default
             changeOrigin: true,
             secure: false,
             // optional: if Laravel is mounted under a subpath, adjust with rewrite
