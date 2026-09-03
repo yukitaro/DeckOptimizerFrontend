@@ -39,7 +39,7 @@ export interface CardBackendData {
   image_url: string
   mana_cost: string
   name: string
-  number_in_set: string
+  number_in_set: string | number
   set_name: string
   slug: string
   text: string

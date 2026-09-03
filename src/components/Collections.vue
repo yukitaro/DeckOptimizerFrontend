@@ -42,8 +42,11 @@ const groupByName = ref(false)
 const deleteDialog = ref(false)
 const deleteSnackbar = ref(false)
 const collectionToDelete = ref<any>(null)
+const filteredCardTotalValue = computed(() => calculateFilteredCardTotalValue())
+const totalValueOfSelected = ref(0)
 
 const selectedSets = ref<ProcessedSetData[]>([])
+const appliedSets = ref<ProcessedSetData[]>([])
 const { setData, setNameMap, loadSetData, isLoading: isSetDataLoading } = useSetData()
 
 const selectedRarities = ref(['common', 'uncommon', 'rare', 'mythic'])
@@ -72,6 +75,18 @@ const modeOptions = [
   { title: 'Create New', value: 'new', subtitle: 'Create new entries only' }
 ]
 
+function searchAgainstSetData() {
+  // Snapshot the current UI selections into the applied state
+  appliedSets.value = [...selectedSets.value]
+
+  // Reset pagination to page 1, or execute refresh directly if already on page 1
+  if (currentPage.value !== 1) {
+    currentPage.value = 1
+  } else {
+    refreshFilteredCards()
+  }
+}
+
 const queryParams = computed(() => ({
   sort: {
     key: sortKey.value,
@@ -79,6 +94,13 @@ const queryParams = computed(() => ({
   },
   filters: {
     colors: activeColors.value,
+    sets: appliedSets.value
+      .map(set => {
+        if (typeof set === 'string') return set
+        return set?.value?.value || set?.value || set?.raw?.value || null
+      })
+      .filter(Boolean)
+      .join(','),
     rarities: selectedRarities.value.join(','),
     excludeMultiColor: shouldExcludeMultiColor.value,
     search: debouncedSearchTerm.value,
@@ -127,15 +149,52 @@ function setupIntersectionObserver() {
 
   nextTick(() => {
     if (!scrollAnchor.value) return
-    observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && hasMore.value && !isLoading.value && cardsInCollection.value.length > 0) {
-        currentPage.value++
+
+    observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0]
+        if (
+          entry.isIntersecting && 
+          hasMore.value && 
+          !isLoading.value && 
+          cardsInCollection.value.length > 0
+        ) {
+          currentPage.value++
+        }
+      },
+      { 
+        root: null, // Uses the browser viewport or scroll container
+        rootMargin: '200px', // Pre-load 200px before the user reaches the absolute bottom
+        threshold: 0.1 
       }
-    }, { root: null, threshold: 0.5 })
+    )
 
     observer.observe(scrollAnchor.value)
   })
 }
+
+// Watch for tab switching to attach observer when "View Collections" tab becomes active
+watch(tab, (newTab) => {
+  if (newTab === 'View Collections') {
+    setupIntersectionObserver()
+  }
+})
+
+// Re-observe whenever the ref element changes or mounts in DOM
+watch(scrollAnchor, (el) => {
+  if (el) {
+    setupIntersectionObserver()
+  }
+})
+
+// Re-bind observer after cards update (in case anchor was moved or pushed down)
+watch(cardsInCollection, () => {
+  nextTick(() => {
+    if (scrollAnchor.value && !observer) {
+      setupIntersectionObserver()
+    }
+  })
+})
 
 function onColorFilterChange(newColors: string[]) {
   activeColors.value = newColors
@@ -191,6 +250,16 @@ const createCollection = async () => {
   }
 }
 
+const calculateFilteredCardTotalValue = (): number => {
+  return cardsInCollection.value.reduce((total, card) => {
+    const price = card.is_foil
+      ? card.card_from_set?.card_metadata?.prices?.usd_foil
+      : card.card_from_set?.card_metadata?.prices?.usd
+
+    return total + (price ? Number(price) * card.card_count : 0)
+  }, 0)
+}
+
 const viewCollection = async (collectionId: number) => {
   selectedCollection.value = collectionId
   cardsInCollection.value = []
@@ -221,6 +290,7 @@ async function refreshFilteredCards() {
   try {
     const response = await viewCardsInCollection(selectedCollection.value, queryParams.value)
     cardsInCollection.value = response.data.data || []
+    totalValueOfSelected.value = response.data.aggregations?.filtered?.market_value || 0
     
     const meta = response.data.meta
     hasMore.value = meta ? meta.current_page < meta.last_page : false
@@ -406,7 +476,7 @@ const groupedCards = computed(() => {
         <v-window-item value="Create Collection">
             <v-card class="collection-form-card">
                 <v-card-text class="pa-8">
-                    <div class="form-header mb-6">
+                    <div class="form-header mb-6"f>
                         <h2 class="text-h5 font-weight-bold text-primary mb-2">
                             <v-icon icon="mdi-plus-circle" class="mr-2"></v-icon>
                             Create New Collection
@@ -789,7 +859,16 @@ const groupedCards = computed(() => {
                                         Search Cards
                                     </v-btn>
                                 </div>                                
-                            </v-row>      
+                                <div class="filter-summary mt-4">
+                                    <p class="text-body-2 text-medium-emphasis">
+                                        Showing {{ filteredAndSortedCards.length }} cards
+                                        (Total Value - Displayed: ${{ filteredCardTotalValue.toFixed(2) }})
+                                    </p>
+                                    <p>
+                                        (Total Value - All: ${{ totalValueOfSelected.toFixed(2) }})
+                                    </p>
+                                </div>
+                            </v-row>
                             </v-card-text>
                         </v-card>
 
@@ -803,7 +882,20 @@ const groupedCards = computed(() => {
                                 viewMode="grid"
                                 imageSize="lg" />
                         </div>
-                        <div ref="scrollAnchor" style="height: 20px; background: red;"></div>
+                        <!-- Dedicated Scroll Anchor -->
+                        <div 
+                            ref="scrollAnchor" 
+                            class="scroll-anchor py-4 text-center"
+                        >
+                            <v-progress-circular
+                            v-if="isLoading"
+                            indeterminate
+                            color="primary"
+                            ></v-progress-circular>
+                            <span v-else-if="!hasMore && cardsInCollection.length > 0" class="text-caption text-medium-emphasis">
+                            End of collection
+                            </span>
+                        </div>
                         <!-- No Results -->
                         <v-empty-state
                             v-if="filteredAndSortedCards.length === 0"
@@ -960,5 +1052,10 @@ const groupedCards = computed(() => {
   flex: 1 1 auto;
   min-width: 200px;
   max-width: 300px;
+}
+
+.scroll-anchor {
+  min-height: 50px;
+  width: 100%;
 }
 </style>

@@ -3,9 +3,10 @@ import { computed, onMounted, ref } from 'vue';
 import { CardDisplay, Colors } from '@/interfaces';
 import { getColorManaCost, getNumericalManaCost, mapColorCodeToName} from '../utils/deckUtils'
 import { useCsvExport, CsvColumn } from '../composables/useCsvExport';
-import { getSetData, searchCardsByName, searchSetsByRarities } from '@/api/cardClient';
+import { callConsolidatedCardsSearch, getSetData, searchCardsByName, searchSetsByRarities } from '@/api/cardClient';
 import { useSiteWideRouter } from '@/composables/useSitewideRouter';
 import type { Card, CardBackendData } from '@/utils/types';
+import type { CardSearchParams } from '@/api/cardClient';
 
 const { routeToCardMetadata } = useSiteWideRouter();
 
@@ -61,31 +62,84 @@ const colorsToggle = ref<Record<ColorName, boolean>>({
 })
 
 const allHeaders = ref([
-    { title: 'Name', value: 'name', width: '300px' },
-    { title: 'Set', value: 'set_name', width: '300px' },
-    { title: 'Type', value: 'type', width: '300px' },
-    { title: 'Colors', value: 'colors' },
-    { title: 'Mana Cost', value: 'mana_cost', width: '200px' },
-    { title: 'Image', value: 'image_url' },
-    { title: 'Text', value: 'card_text', width: '600px' },
+    { title: 'Name', key: 'name', value: 'name', width: '300px' },
+    { title: 'Set', key: 'set_name', value: 'set_name', width: '300px' },
+    { title: 'Release Date', key: 'release_date', value: 'release_date', width: '150px' },
+    { title: 'Type', key: 'type', value: 'type', width: '300px' },
+    { title: 'Colors', key: 'colors', value: 'colors' },
+    { title: 'Mana Cost', key: 'mana_cost', value: 'mana_cost', width: '200px' },
+    { title: 'Image', key: 'image_url', value: 'image_url' },
+    { title: 'Text', key: 'card_text', value: 'card_text', width: '500px' },
+    { title: 'Price', key: 'price_usd', value: 'price_usd', width: '100px' },
 ])
 
-function exportToCSV() {
+const serverSortKey = ref<'name' | 'price' | 'release_date' | 'set' | 'count'>('name')
+const serverSortDirection = ref<'asc' | 'desc'>('asc')
+
+const serverSortOptions = [
+  { title: 'Card Name', value: 'name' },
+  { title: 'Price', value: 'price' },
+  { title: 'Release Date', value: 'release_date' },
+  { title: 'Set Code', value: 'set' },
+]
+
+const searchParams = computed<CardSearchParams>(() => ({
+    name: searchText.value,
+    sets: selectedSets.value.map(set => set.value).join(','),
+    rarities: selectedRarity.value.join(','),
+    colors: colorFilterParam.value,
+    limit: limitToRetrieve.value,
+    sort: {
+        key: serverSortKey.value,
+        direction: serverSortDirection.value
+    }    
+}));
+
+const exportDialog = ref(false)
+const selectedExportFormat = ref<'default' | 'manabox'>('default')
+
+const exportFormats = [
+  { title: 'Default CSV', value: 'default', subtitle: 'Standard card collection layout' },
+  { title: 'Manabox CSV', value: 'manabox', subtitle: 'Formatted specifically for ManaBox app imports' }
+]
+
+function openExportModal() {
   if (filteredCardData.value.length === 0) {
     return alert('No data to export')
   }
-  
-  // Define columns for CSV export
-  const columns: CsvColumn<any>[] = [
-    { key: 'name', label: 'Name' },
-    { key: 'official_set_name', label: 'Set' },
-    { key: 'rarity', label: 'Rarity' },
-    { key: 'mana_cost', label: 'Mana Cost' },
-    { key: 'type_line', label: 'Type' },
-    { key: 'oracle_text', label: 'Text' }
-  ]
-  
-  downloadCsv(filteredCardData.value, columns, 'mtg_cards_export.csv')
+  exportDialog.value = true
+}
+
+function processAndDownloadCsv() {
+  if (selectedExportFormat.value === 'manabox') {
+    const columnsManabox: CsvColumn<any>[] = [
+      { key: 'name', label: 'card name' },
+      { key: 'set_name', label: 'set code' },
+      { key: 'official_set_name', label: 'set name' },
+      { key: 'number_in_set', label: 'card number' },
+      { key: 'language', label: 'language' },
+      { key: 'is_foil', label: 'foil' },
+      { key: 'quantity', label: 'quantity' },
+      { key: 'scryfall_id', label: 'Scryfall ID' },
+      { key: 'price_usd', label: 'purchase price' },
+      { key: 'purchase_currency', label: 'purchase currency' },
+    ]
+    downloadCsv(filteredCardData.value, columnsManabox, 'mtg_cards_manabox_export.csv')
+  } else {
+    const columnsDefault: CsvColumn<any>[] = [
+      { key: 'name', label: 'Name' },
+      { key: 'set_name', label: 'Set code' },
+      { key: 'number_in_set', label: 'Collector number' },
+      { key: 'is_foil', label: 'Foil' },
+      { key: 'rarity', label: 'Rarity' },
+      { key: 'quantity', label: 'Quantity' },
+      { key: 'scryfall_id', label: 'Scryfall ID' },
+      { key: 'price_usd', label: 'Purchase price' },
+    ]
+    downloadCsv(filteredCardData.value, columnsDefault, 'mtg_cards_export.csv')
+  }
+
+  exportDialog.value = false
 }
 
 const setNameMap = computed<Record<string, string>>(() => 
@@ -105,42 +159,45 @@ async function getSetDataAsync() {
 }
 
 function processRawCardData(data: CardBackendData[]) {
-    processedCardData.value = data.map(cardDataVal => {
-        // grab the raw string once
-        const rawCost       = cardDataVal.mana_cost ?? ''
-        // compute once up-front
-        const mana_numeric  = getNumericalManaCost(rawCost)
-        const mana_colors   = getColorManaCost(rawCost)
+    processedCardData.value = data.map(card => {
+        const rawCost = card.mana_cost ?? ''
 
-        const colorIdentitiesArray = Array.isArray(cardDataVal.colorIdentities)
-            ? cardDataVal.colorIdentities
-            : cardDataVal.colorIdentities
-                ? cardDataVal.colorIdentities.split('') // Split string into individual letters
+        // NEW: backend returns colors as a string like "R"
+        const colorLetters = typeof card.colors === 'string'
+            ? card.colors.split('')
+            : Array.isArray(card.colors)
+                ? card.colors
                 : []
 
-        // Map each color letter to color names and keep as array
-        const colors = colorIdentitiesArray.length > 0
-            ? colorIdentitiesArray
-                .map(letter => colorMap[letter])
-                .filter(Boolean) // Remove any undefined values
-            : ['colorless'] // Explicitly assign colorless for cards with no color identity
+        const colors = colorLetters.map(letter => colorMap[letter] ?? 'colorless')
 
         return {
-            card_text: cardDataVal.text,
-            id: cardDataVal.id,
-            image_url: cardDataVal.image_url ?? "",
-            colors: colors,
+            id: card.id,
+            name: card.name,
+            set_name: card.set_name,
+            official_set_name: setNameMap.value[card.set_name],
+            type: card.type,
+            image_url: card.image_url,
             mana_cost: rawCost,
-            mana_numeric,
-            mana_colors,
-            name: cardDataVal.name,
-            official_set_name: setNameMap.value[cardDataVal.set_name],
-            set_name: cardDataVal.set_name,
-            type: cardDataVal.type,
-            card_from_set: { ...cardDataVal }
-        }   
+            mana_numeric: getNumericalManaCost(rawCost),
+            mana_colors: getColorManaCost(rawCost),
+
+            // NEW: backend does not return oracle_text or text
+            card_text: card.oracle_text ?? card.text ?? '',
+
+            colors,
+            price_usd: card.prices?.usd ? Number(card.prices.usd) : null,
+            price_usd_foil: card.prices?.usd_foil ? Number(card.prices.usd_foil) : null,
+            release_date: card.release_date,
+            scryfall_id: card.scryfall_id,
+            number_in_set: card.number_in_set,
+            rarity: card.rarity,
+
+            card_from_set: card
+        }
     })
 }
+
 
 const colorMap: Record<string, ColorName> = {
   W: 'plains', U: 'islands', B: 'swamps', R: 'mountains', G: 'forests', C: 'colorless'
@@ -224,13 +281,8 @@ async function searchAgainstSetData() {
         selectedRarity.value = ['common', 'uncommon', 'rare', 'mythic'];
     }
 
-    if (searchText.value.length === 0) {
-        const cardDataResponse = await searchSetsByRarities(selectedSets.value.map(set => set.value).join(','), selectedRarity.value.join(','), colorFilterParam.value);
-        processRawCardData(cardDataResponse.data);
-    } else {
-        const cardDataResponse = await searchCardsByName(searchText.value, selectedRarity.value.join(','));
-        processRawCardData(cardDataResponse.data);
-    }
+        const cardDataResponse = await callConsolidatedCardsSearch(searchParams.value);
+        processRawCardData(cardDataResponse.data.data);
 }
 
 function handleRowClick(_evt: MouseEvent, row: { item: { card_from_set?: CardBackendData } }) {
@@ -238,6 +290,66 @@ function handleRowClick(_evt: MouseEvent, row: { item: { card_from_set?: CardBac
   if (!backendData) return
   routeToCardMetadata({ card_from_set: backendData } as Card)
 }
+
+function handleVuetifyHeaderSort(sortBy: Array<{ key: string; order: 'asc' | 'desc' }>) {
+  if (sortBy.length > 0) {
+    const target = sortBy[0]
+    if (target.key === 'name' || target.key === 'price_usd' || target.key === 'release_date') {
+      clientSortKey.value = target.key
+      clientSortDir.value = target.order
+    }
+  }
+}
+
+const clientSortKey = ref<'name' | 'price_usd' | 'release_date'>('name')
+const clientSortDir = ref<'asc' | 'desc'>('asc')
+
+function toggleClientSort(key: 'name' | 'price_usd' | 'release_date') {
+  if (clientSortKey.value === key) {
+    clientSortDir.value = clientSortDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    clientSortKey.value = key
+    clientSortDir.value = 'asc'
+  }
+}
+
+// Wrap filteredCardData in a client-sorted computed block
+const sortedFilteredCardData = computed(() => {
+  if (!filteredCardData.value || filteredCardData.value.length === 0) return []
+
+  // Create a clean shallow copy array
+  const list = [...filteredCardData.value]
+  const key = clientSortKey.value
+  const isAsc = clientSortDir.value === 'asc'
+
+  return list.sort((a, b) => {
+    let valA = a[key]
+    let valB = b[key]
+
+    // Push empty/nullish values to the bottom regardless of sort order
+    const isAEmpty = valA === null || valA === undefined || valA === ''
+    const isBEmpty = valB === null || valB === undefined || valB === ''
+    if (isAEmpty && isBEmpty) return 0
+    if (isAEmpty) return 1
+    if (isBEmpty) return -1
+
+    let diff = 0
+
+    if (key === 'release_date') {
+      const timeA = new Date(valA).getTime()
+      const timeB = new Date(valB).getTime()
+      diff = (isNaN(timeA) ? 0 : timeA) - (isNaN(timeB) ? 0 : timeB)
+    } else if (key === 'price_usd') {
+      const numA = Number(valA) ?? 0
+      const numB = Number(valB) ?? 0
+      diff = numA - numB
+    } else {
+      diff = String(valA).localeCompare(String(valB))
+    }
+
+    return isAsc ? diff : -diff
+  })
+})
  </script>
 
 <template>
@@ -250,7 +362,7 @@ function handleRowClick(_evt: MouseEvent, row: { item: { card_from_set?: CardBac
           
           <!-- Main Search Bar -->
           <v-text-field v-model="searchText" label="Search for cards..." placeholder="Lightning Bolt, Counterspell, etc." variant="outlined" density="comfortable"
-            class="search-input mb-4" prepend-inner-icon="mdi-magnify" @keyup.enter="searchByName" clearable />
+            class="search-input mb-4" prepend-inner-icon="mdi-magnify" @keyup.enter="searchAgainstSetData" clearable />
 
           <!-- Filter Controls -->
           <v-expansion-panels class="mb-4" variant="accordion">
@@ -330,7 +442,7 @@ function handleRowClick(_evt: MouseEvent, row: { item: { card_from_set?: CardBac
                   </v-btn>
                   
                   <v-btn 
-                    @click="exportToCSV"
+                    @click="openExportModal"
                     color="secondary"
                     variant="outlined"
                     size="large"
@@ -345,19 +457,82 @@ function handleRowClick(_evt: MouseEvent, row: { item: { card_from_set?: CardBac
       </v-card-text>
     </v-card>
   </div>
-  <v-toolbar flat class="mb-4">
-    <v-btn-toggle v-model="viewMode" mandatory>
-      <v-btn value="table" icon="mdi-table">Table</v-btn>
-      <v-btn value="grid" icon="mdi-view-grid">Grid</v-btn>
+  <v-toolbar flat class="mb-4 px-2 bg-surface rounded-lg border">
+    <!-- View Mode Switchers -->
+    <v-btn-toggle v-model="viewMode" mandatory density="compact" color="primary">
+      <v-btn value="table" icon="mdi-table" title="Table View" />
+      <v-btn value="grid" icon="mdi-view-grid" title="Grid View" />
+    </v-btn-toggle>
+
+    <!-- Image Size Options (Grid View Only) -->
+    <v-btn-toggle
+      v-if="viewMode === 'grid'"
+      v-model="imageSize"
+      mandatory
+      density="compact"
+      class="ml-3"
+    >
+      <v-btn value="sm">SM</v-btn>
+      <v-btn value="md">MD</v-btn>
+      <v-btn value="lg">LG</v-btn>
     </v-btn-toggle>
 
     <v-spacer />
 
-    <v-btn-toggle v-model="imageSize" mandatory>
-      <v-btn value="sm">Small</v-btn>
-      <v-btn value="md">Medium</v-btn>
-      <v-btn value="lg">Large</v-btn>
-    </v-btn-toggle>
+    <!-- 1. SERVER QUERY SORT (Re-runs search on change) -->
+    <div class="d-flex align-center mr-4" style="max-width: 260px;">
+      <v-select
+        v-model="serverSortKey"
+        :items="serverSortOptions"
+        label="Query Sort"
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="mr-1"
+        @update:model-value="searchAgainstSetData"
+      />
+      <v-btn
+        icon
+        size="small"
+        variant="text"
+        @click="serverSortDirection = serverSortDirection === 'asc' ? 'desc' : 'asc'; searchAgainstSetData()"
+      >
+        <v-icon>
+          {{ serverSortDirection === 'asc' ? 'mdi-sort-ascending' : 'mdi-sort-descending' }}
+        </v-icon>
+      </v-btn>
+    </div>
+
+    <v-divider vertical class="my-2 mr-4" />
+
+    <!-- 2. CLIENT DISPLAY SORT (Flips loaded results instantly without network requests) -->
+    <div class="d-flex align-center">
+      <span class="text-caption text-medium-emphasis mr-2">Page Sort:</span>
+      <v-btn
+        size="small"
+        variant="outlined"
+        class="mr-1"
+        :color="clientSortKey === 'price_usd' ? 'primary' : 'default'"
+        @click="toggleClientSort('price_usd')"
+      >
+        Price
+        <v-icon end size="x-small">
+          {{ clientSortKey === 'price_usd' && clientSortDir === 'desc' ? 'mdi-arrow-down' : 'mdi-arrow-up' }}
+        </v-icon>
+      </v-btn>
+
+      <v-btn
+        size="small"
+        variant="outlined"
+        :color="clientSortKey === 'release_date' ? 'primary' : 'default'"
+        @click="toggleClientSort('release_date')"
+      >
+        Date
+        <v-icon end size="x-small">
+          {{ clientSortKey === 'release_date' && clientSortDir === 'desc' ? 'mdi-arrow-down' : 'mdi-arrow-up' }}
+        </v-icon>
+      </v-btn>
+    </div>
   </v-toolbar>
   <!-- Results Section -->
   <div class="results-section">
@@ -380,13 +555,14 @@ function handleRowClick(_evt: MouseEvent, row: { item: { card_from_set?: CardBac
       <div v-if="viewMode === 'table'">
         <v-data-table
           :headers="allHeaders"
-          :items="filteredCardData"
-          :key="tableLoadKey"
+          :items="sortedFilteredCardData"
+          item-value="id"
           :items-per-page-options="itemsPerPageOptions"
-          :items-per-page="itemsPerPage"
+          v-model:items-per-page="itemsPerPage"
           @click:row="handleRowClick"
           class="elevation-0"
           hover
+          @update:sort-by="handleVuetifyHeaderSort"
         >
           <!-- Card Image Column -->
           <template v-slot:item.image_url="{ item }">
@@ -422,7 +598,9 @@ function handleRowClick(_evt: MouseEvent, row: { item: { card_from_set?: CardBac
           <!-- Mana Cost Column -->
           <template v-slot:item.mana_cost="{ item }">
             <div class="mana-cost-display d-flex align-center">
-              <Colors :mana_cost="item.mana_numeric" class="mr-1" />
+              <span class="mr-1 d-inline-flex">
+                <Colors :mana_cost="item.mana_numeric" />
+              </span>
               <span
                 v-for="(c, idx) in item.mana_colors"
                 :key="idx"
@@ -439,19 +617,84 @@ function handleRowClick(_evt: MouseEvent, row: { item: { card_from_set?: CardBac
               <div class="card-text-content">{{ item.card_text }}</div>
             </div>
           </template>
+          <!-- Card Price Column -->
+          <template v-slot:item.prices="{ item }">
+            <v-col cols="2">
+              <v-row v-if="item.prices?.usd">
+                <div class="card-text-cell">
+                  <div class="card-text-content">{{ item.prices?.usd ?? 'N/A' }}</div>
+                </div>
+              </v-row>
+              <v-row v-if="item.prices?.usd_foil">
+                <div class="card-text-cell">
+                  <div class="card-text-content">{{ item.prices?.usd_foil ?? 'N/A' }}</div>
+                </div>
+              </v-row>
+            </v-col>
+          </template>
         </v-data-table>
       </div>
-      <div v-else class="card-grid">
+      <div v-else :class="['card-grid', `size-${imageSize}`]">
         <CardDisplay
-          v-for="card in filteredCardData"
+          v-for="card in sortedFilteredCardData"
           :key="card.id"
           :card="card"
           viewMode="grid"
           :imageSize="imageSize"
         />
-      </div>      
+      </div>
     </v-card>
   </div>
+<!-- Export Format Modal -->
+<v-dialog v-model="exportDialog" max-width="500px">
+  <v-card>
+    <v-card-title class="text-h6 pa-4">
+      <v-icon icon="mdi-file-export-outline" class="mr-2"></v-icon>
+      Select Export Format
+    </v-card-title>
+    
+    <v-divider></v-divider>
+    
+    <v-card-text class="pa-4">
+      <v-radio-group v-model="selectedExportFormat" hide-details>
+        <v-radio
+          v-for="format in exportFormats"
+          :key="format.value"
+          :value="format.value"
+          color="primary"
+          class="mb-2"
+        >
+          <template #label>
+            <div>
+              <div class="font-weight-medium text-body-1">{{ format.title }}</div>
+              <div class="text-caption text-medium-emphasis">{{ format.subtitle }}</div>
+            </div>
+          </template>
+        </v-radio>
+      </v-radio-group>
+    </v-card-text>
+
+    <v-divider></v-divider>
+
+    <v-card-actions class="pa-4">
+      <v-spacer></v-spacer>
+      <v-btn
+        variant="text"
+        @click="exportDialog = false"
+      >
+        Cancel
+      </v-btn>
+      <v-btn
+        color="primary"
+        variant="elevated"
+        prepend-icon="mdi-download"
+        @click="processAndDownloadCsv"
+      >
+        Download
+      </v-btn>
+    </v-card-actions>
+  </v-card>
+</v-dialog>  
 </template>
 
 <style scoped>
@@ -581,8 +824,27 @@ function handleRowClick(_evt: MouseEvent, row: { item: { card_from_set?: CardBac
 }
 
 .card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 16px;
+  padding: 16px;
+  justify-content: flex-start;
+}
+
+/* Adjust layout behavior based on size */
+.card-grid.size-sm {
+  gap: 12px;
+}
+
+.card-grid.size-md {
+  gap: 16px;
+}
+
+.card-grid.size-lg {
+  gap: 24px;
+}
+
+.cursor-pointer {
+  cursor: pointer;
 }
 </style>

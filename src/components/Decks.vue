@@ -21,6 +21,12 @@ import { useSiteWideRouter } from '@/composables/useSitewideRouter';
 
 const route = useRoute()
 const router = useRouter()
+const props = defineProps({
+  deckId: {
+    type: String,
+    default: null
+  }
+})
 const isReady = ref(false)
 const tab = ref('Deck Import')
 const deckName = ref('')
@@ -171,21 +177,6 @@ const activeCard = computed(() => {
 });
 
 // Watchers
-watch( [() => route.params.deckId, isReady],
-  async ([deckId, ready]) => {
-    if (deckId && ready) {
-      const deck = listOfStoredDecks.value.find(d => d.deck_id === Number(deckId));
-      if (deck) {
-        selectedDeck.value = deck
-        await handleSingleDeckChange(deck)
-      } else {
-        selectedDeck.value = null;
-        console.log('Error, deck not found for id from route:', deckId);
-      }
-    }
-  },  { immediate: true }
-)
-
 watch(showErrorSnackbar, (val) => {
   if (val) {
     setTimeout(() => {
@@ -211,9 +202,43 @@ watch(cardsInSelectedDeck, (newVal) => {
   hoveredCard.value = null
 })
 
-watch(() => route.query.tab, tabName => {
-  if (tabName) tab.value = tabName
-}, { immediate: true })
+watch(
+  [() => route.query.tab, () => route.params.deckId, isReady],
+  async ([newTab, newDeckId, ready]) => {
+    if (!ready) return;
+
+    // 1. Update tab state
+    if (newTab) {
+      tab.value = newTab;
+    }
+
+    // 2. Load and set active deck
+    if (newDeckId) {
+      await loadDeckById(newDeckId);
+    }
+  },
+  { immediate: true }
+);
+
+async function loadDeckById(deckId) {
+  if (!deckId) return;
+
+  // Make sure decks are loaded in state
+  if (!listOfStoredDecks.value || listOfStoredDecks.value.length === 0) {
+    await getDecksFromDB();
+  }
+
+  const idNum = Number(deckId);
+  const deck = listOfStoredDecks.value.find(d => d.deck_id === idNum);
+
+  if (deck) {
+    selectedDeck.value = deck;
+    await handleSingleDeckChange(deck);
+  } else {
+    selectedDeck.value = null;
+    console.warn(`Deck with ID ${deckId} not found in stored decks.`);
+  }
+}
 
 // Functions
 async function importCardsForDeck() {
@@ -324,9 +349,17 @@ function confirmDelete(deck) {
 // same for the Deck Management list
 function switchToDeckDisplay(deck) {
   if (!deck) return
+
+  const rawDeck = deck?._custom?.value || deck
+  const deckId = rawDeck?.deck_id
+
+  if (!deckId) {
+    console.warn('Cannot switch: deck_id is missing from', deck)
+    return
+  }  
   router.push({
     name: 'Decks',
-    params: { deckId: deck.deck_id },
+    params: { deckId: String(deckId) },
     query: { tab: 'Deck Display 2' }
   })
 }

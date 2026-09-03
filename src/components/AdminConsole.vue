@@ -32,5 +32,13 @@
         </v-card>
       </v-col>
     </v-row>
+    <v-row>
+      <v-col cols="12" md="6">
+        <v-card to="/adminconsole/collection-data" class="hoverable">
+          <v-card-title>Collection Data Dashboard</v-card-title>
+          <v-card-text>View collection data</v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
   </v-container>
 </template>

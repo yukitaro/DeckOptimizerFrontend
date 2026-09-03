@@ -1,8 +1,11 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { getColorManaCost, getNumericalManaCost, mapColorCodeToName} from '../utils/deckUtils'
 import Colors from './Colors.vue';
 import { useCardMetadata } from '@/composables/useCardMetadata';
+
+const router = useRouter()
 
 const {
   selectedMetadata, enrichedPrintings, priceItems, deckItems, priceMap, loading, error,
@@ -69,6 +72,23 @@ const averagePrice = computed(() => {
 
 function doSearch() {
   searchCards(searchText.value);
+}
+
+function switchToDeckDisplay(deck) {
+  if (!deck) return
+
+  const rawDeck = deck?._custom?.value || deck
+  const deckId = rawDeck?.deck_id
+
+  if (!deckId) {
+    console.warn('Cannot switch: deck_id is missing from', deck)
+    return
+  }  
+  router.push({
+    name: 'Decks',
+    params: { deckId: String(deckId) },
+    query: { tab: 'Deck Display 2' }
+  })
 }
 
 onMounted(async () => {
@@ -527,7 +547,7 @@ onMounted(async () => {
               <template v-slot:item.deck_name="{ item }">
                 <span class="font-weight-medium">
                 {{ item.deck_name }}
-                <v-btn :to="`/decks/${item.deck_id}`" icon="mdi-open-in-new" variant="text" />
+                <v-btn @click="switchToDeckDisplay(item)" icon="mdi-open-in-new" variant="text" />
                 </span>
               </template>
               <template v-slot:item.format="{ item }">

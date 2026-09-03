@@ -7,6 +7,10 @@ import PlainsIcon from '@/components/icons/PlainsIcon.vue'
 import SwampsIcon from '@/components/icons/SwampsIcon.vue'
 import ColorlessIcon from './icons/ColorlessIcon.vue'
 
+defineOptions({
+  inheritAttrs: false
+})
+
 const props = defineProps({
   color_name: String,
   mana_cost: String,
@@ -29,7 +33,7 @@ const iconMap = {
 </script>
 
 <template>
-<span class="mana-gap" v-if="mana_cost !== undefined && mana_cost !== ''">
+<span class="mana-gap" v-if="mana_cost !== undefined && mana_cost !== ''" v-bind="$attrs">
   <svg :width="size" :height="size" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
     <circle cx="15" cy="15" r="13" fill="#e0e0e0" stroke="#ccc" stroke-width="2" />
     <text
@@ -44,7 +48,7 @@ const iconMap = {
     </text>
   </svg>
 </span>
-  <span v-if="color_name !== undefined && color_name !== ''" class="mana-gap">
+  <span v-if="color_name !== undefined && color_name !== ''" class="mana-gap" v-bind="$attrs">
     <component
       :is="iconMap[color_name] || null"
       v-if="iconMap[color_name]"

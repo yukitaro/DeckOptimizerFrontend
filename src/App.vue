@@ -86,7 +86,7 @@ const toggleDashboard = () => {
       </div>
     </v-main>
 
-    <AppFooter />
+    <!--<AppFooter /> -->
   </v-app>
 </template>
 

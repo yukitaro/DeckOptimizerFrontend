@@ -1,6 +1,14 @@
 import { laravel_api as api } from './client'
 import { SetDataItem } from '@/utils/types';
 
+export interface CardSearchParams {
+  name?: string;
+  sets?: string | string[];
+  rarities?: string | string[];
+  colors?: string | string[];
+  limit?: number;
+}
+
 export async function getSetData() {
   const response = await api.get('/api/sets');
 
@@ -27,4 +35,6 @@ export async function searchSetsByRarities(setNames: string, rarities?: string, 
   return await api.get(`/api/cardsfromsets/${setNames}/${rarities ?? ''}`, { params: { limit: resultLimit ??100, colorFilters: colorFilters ?? '' }});
 }
 
-
+export async function callConsolidatedCardsSearch(params: CardSearchParams = {}) {
+  return await api.get(`/api/cards/search`, { params });
+}

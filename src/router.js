@@ -22,6 +22,7 @@ import ResetPassword from './components/ResetPassword.vue'
 import UserDashboard from './components/UserDashboard.vue'
 import IssueDashboard from './components/IssueDashboard.vue'
 import EnumManagementDashboard from './components/EnumManagementDashboard.vue'
+import CollectionDataDashboard from './components/CollectionDataDashboard.vue'
 
 const authRoutes = [
   {
@@ -43,6 +44,11 @@ const authRoutes = [
     path: '/adminconsole/enum-management',
     component: EnumManagementDashboard,
     meta: { feature: 'enums' },
+  },
+  {
+    path: '/adminconsole/collection-data',
+    component: CollectionDataDashboard,
+    meta: { feature: 'collectionData' },
   },
   {
     path: '/importcandidates',
@@ -82,8 +88,8 @@ const authRoutes = [
 
 const routes = [
   { path: '/', component: CardListingVuetify },
-  { path: '/decks/:deckId?', name: 'Decks', component: Decks, props: true },
   { path: '/decks', component: Decks },
+  { path: '/decks/:deckId?', name: 'Decks', component: Decks, props: true },
   { path: '/collections', component: Collections },
   { path: '/settings', component: Settings },
   { path: '/login', component: Login },
