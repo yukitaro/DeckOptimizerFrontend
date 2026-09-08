@@ -4,10 +4,12 @@ const host = typeof window !== "undefined" ? window.location.hostname : "";
 
 const isProd = import.meta.env.PROD
 
-let baseURL = 'http://192.168.4.46' //import.meta.env.VITE_API_BASE_URL
+let baseURL = 'http://192.168.4.198' //import.meta.env.VITE_API_BASE_URL
 let baseSymbolUrl = import.meta.env.VITE_SYMBOL_BASE_URL || '/storage' // default fallback
 
-if (host === "deck.thekiharas.com" || host.endsWith(".thekiharas.com") || isProd) {
+if (host === "localhost" || host === "127.0.0.1") {
+  baseURL = "/api"
+} else if (host === "deck.thekiharas.com" || host.endsWith(".thekiharas.com") || isProd) {
   baseURL = import.meta.env.VITE_API_BASE
   baseSymbolUrl = import.meta.env.VITE_API_SYMBOL_BASE
 } else if (host.includes('192.168.4.46')) {
@@ -30,10 +32,13 @@ if (host === "deck.thekiharas.com" || host.endsWith(".thekiharas.com") || isProd
 
 console.log('host is : ' + host)
 
+//const serverOrigin = baseURL.replace(/\/api\/?$/, '')
+
 export const laravel_api = axios.create({
   baseURL,
   timeout: 10000,
   withCredentials: true,
+  withXSRFToken: true,
   headers: {
     Accept: 'application/json'
   },

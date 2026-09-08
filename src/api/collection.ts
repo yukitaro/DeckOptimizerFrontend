@@ -1,4 +1,5 @@
 import { laravel_api as api } from './client'
+import { Collection, UpdateCollectionPayload } from '@/utils/types'
 
 export async function createNewCollection({ name, description }: { name: string; description: string }) {
   const response = await api.post('/api/collections/create', {
@@ -10,7 +11,10 @@ export async function createNewCollection({ name, description }: { name: string;
 
 export async function retrieveCollections() {
   const response = await api.get('/api/collections')
-  return response
+
+  return response.data.map((aCollection: Collection) => ({
+    ...aCollection
+  }));
 }
 
 export async function retrieveNormalizedInventory(payload) {
@@ -39,4 +43,10 @@ export async function viewCardsInCollection(collectionId: number,
 export async function deleteCollectionFromServer(collectionId: number) {
     const response = await api.delete(`/api/collections/${collectionId}`)
     return response
+}
+
+export async function updateCollectionData(collectionId: number | string, payload: UpdateCollectionPayload) {
+  // Axios automatically serializes 'payload' to JSON and sets content-type header
+  const response = await api.patch(`/api/collections/${collectionId}`, payload)
+  return response.data
 }

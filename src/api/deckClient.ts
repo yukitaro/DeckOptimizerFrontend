@@ -1,5 +1,6 @@
 import { laravel_api as api } from './client'
 import { getCSRF } from '@/api/auth';
+import { DeckImportDTO } from '@/utils/deckTypes';
 
 export async function getStoredDecks( params = {}) {
   const response = await api.get(`/api/decks`, { params })
@@ -23,6 +24,11 @@ export async function getKnownArchetypes() {
 
 export async function storeDeck(payload) {
   const response = await api.post('/api/deck', payload)
+  return response
+}
+
+export async function storeDeckFromDTO(deckToImport: DeckImportDTO) {
+  const response = await api.post('/api/deck/fromDTO', deckToImport)
   return response
 }
 

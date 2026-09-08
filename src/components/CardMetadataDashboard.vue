@@ -757,4 +757,8 @@ onMounted(async () => {
 .v-data-table thead .tbl-header {
   box-shadow: inset 0 -1px 0 rgba(0,0,0,0.04);
 }
+
+.v-list-item-title {
+  font-size: 1.5rem !important;
+}
 </style>

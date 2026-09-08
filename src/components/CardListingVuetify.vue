@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { CardDisplay, Colors } from '@/interfaces';
 import { getColorManaCost, getNumericalManaCost, mapColorCodeToName} from '../utils/deckUtils'
 import { useCsvExport, CsvColumn } from '../composables/useCsvExport';
@@ -7,6 +7,15 @@ import { callConsolidatedCardsSearch, getSetData, searchCardsByName, searchSetsB
 import { useSiteWideRouter } from '@/composables/useSitewideRouter';
 import type { Card, CardBackendData } from '@/utils/types';
 import type { CardSearchParams } from '@/api/cardClient';
+
+const desktopGridMinWidths: Record<'sm' | 'md' | 'lg', string> = {
+  sm: '140px',
+  md: '200px',
+  lg: '280px'
+}
+
+const currentImageSize = ref<'sm' | 'md' | 'lg'>('lg')
+const gridMinWidth = computed(() => desktopGridMinWidths[currentImageSize.value as 'sm' | 'md' | 'lg'])
 
 const { routeToCardMetadata } = useSiteWideRouter();
 
@@ -39,6 +48,7 @@ const processedCardData = ref<any[]>([])
 const tableLoadKey = ref(0)
 const searchText = ref("")
 const itemsPerPage = ref(10)
+const dynamicListName = ref("")
 
 const viewMode = ref<'table' | 'grid'>('table')   // default to table
 const imageSize = ref<'sm' | 'md' | 'lg'>('md')   // default to medium
@@ -48,6 +58,8 @@ const { downloadCsv } = useCsvExport<any>()
 
 const setData = ref<ProcessedSetData[]>([])
 const selectedSets = ref<ProcessedSetData[]>([])
+const setSearchText = ref('')
+const setCombobox = ref<any>(null)
 
 const limitToRetrieve = ref(100)
 
@@ -83,17 +95,25 @@ const serverSortOptions = [
   { title: 'Set Code', value: 'set' },
 ]
 
-const searchParams = computed<CardSearchParams>(() => ({
+const dateRangeText = ref('')
+
+const searchParams = computed<CardSearchParams>(() => {
+  const range = parseDateRange(dateRangeText.value)
+
+  return {
     name: searchText.value,
     sets: selectedSets.value.map(set => set.value).join(','),
     rarities: selectedRarity.value.join(','),
     colors: colorFilterParam.value,
     limit: limitToRetrieve.value,
+    date_start: range.start,
+    date_end: range.end,
     sort: {
-        key: serverSortKey.value,
-        direction: serverSortDirection.value
-    }    
-}));
+      key: serverSortKey.value,
+      direction: serverSortDirection.value
+    }
+  }
+})
 
 const exportDialog = ref(false)
 const selectedExportFormat = ref<'default' | 'manabox'>('default')
@@ -140,6 +160,35 @@ function processAndDownloadCsv() {
   }
 
   exportDialog.value = false
+}
+
+function selectTopSet() {
+// 1. If there is search text, select the top matched set item
+  if (setSearchText.value && setSearchText.value.trim().length > 0) {
+    const filtered = setCombobox.value?.filteredItems || []
+
+    if (filtered.length > 0) {
+      const topItem = filtered[0].raw ?? filtered[0]
+
+      nextTick(() => {
+        // Remove raw text strings inserted by v-combobox default behavior
+        const cleanedList = selectedSets.value.filter(s => typeof s !== 'string')
+
+        // Add object if not already selected
+        const exists = cleanedList.some(s => s.value === topItem.value)
+        if (!exists) {
+          cleanedList.push(topItem)
+        }
+
+        selectedSets.value = cleanedList
+        setSearchText.value = ''
+      })
+    }
+    return
+  }
+
+  // 2. If search text is empty (second Enter press), execute the search
+  searchAgainstSetData()
 }
 
 const setNameMap = computed<Record<string, string>>(() => 
@@ -268,6 +317,37 @@ function getColorCount(colorName: string): number {
     return colorCounts.value[colorName as keyof typeof colorCounts.value] || 0
 }
 
+function parseDateRange(input: string): { start?: string; end?: string } {
+  if (!input) return {}
+
+  const parts = input.split('-').map(p => p.trim())
+
+  // Case 1: single date → start = parsed date, end = today
+  if (parts.length === 1) {
+    const start = new Date(parts[0])
+    if (!isNaN(start.getTime())) {
+      return {
+        start: start.toISOString().slice(0, 10),
+        end: new Date().toISOString().slice(0, 10)
+      }
+    }
+    return {}
+  }
+
+  // Case 2: two dates → start and end
+  if (parts.length === 2) {
+    const start = new Date(parts[0])
+    const end = new Date(parts[1])
+
+    return {
+      start: !isNaN(start.getTime()) ? start.toISOString().slice(0, 10) : undefined,
+      end: !isNaN(end.getTime()) ? end.toISOString().slice(0, 10) : undefined
+    }
+  }
+
+  return {}
+}
+
 async function searchByName() {
     if (selectedRarity.value.length === 0) {
         selectedRarity.value = ['common', 'uncommon', 'rare', 'mythic']
@@ -281,24 +361,14 @@ async function searchAgainstSetData() {
         selectedRarity.value = ['common', 'uncommon', 'rare', 'mythic'];
     }
 
-        const cardDataResponse = await callConsolidatedCardsSearch(searchParams.value);
-        processRawCardData(cardDataResponse.data.data);
+    const cardDataResponse = await callConsolidatedCardsSearch(searchParams.value);
+    processRawCardData(cardDataResponse.data.data);
 }
 
 function handleRowClick(_evt: MouseEvent, row: { item: { card_from_set?: CardBackendData } }) {
   const backendData = row.item.card_from_set
   if (!backendData) return
   routeToCardMetadata({ card_from_set: backendData } as Card)
-}
-
-function handleVuetifyHeaderSort(sortBy: Array<{ key: string; order: 'asc' | 'desc' }>) {
-  if (sortBy.length > 0) {
-    const target = sortBy[0]
-    if (target.key === 'name' || target.key === 'price_usd' || target.key === 'release_date') {
-      clientSortKey.value = target.key
-      clientSortDir.value = target.order
-    }
-  }
 }
 
 const clientSortKey = ref<'name' | 'price_usd' | 'release_date'>('name')
@@ -311,22 +381,20 @@ function toggleClientSort(key: 'name' | 'price_usd' | 'release_date') {
     clientSortKey.value = key
     clientSortDir.value = 'asc'
   }
+  tableLoadKey.value++ // Forces Vuetify table DOM reset
 }
 
 // Wrap filteredCardData in a client-sorted computed block
 const sortedFilteredCardData = computed(() => {
-  if (!filteredCardData.value || filteredCardData.value.length === 0) return []
-
-  // Create a clean shallow copy array
   const list = [...filteredCardData.value]
   const key = clientSortKey.value
   const isAsc = clientSortDir.value === 'asc'
 
   return list.sort((a, b) => {
-    let valA = a[key]
-    let valB = b[key]
+    const valA = a[key]
+    const valB = b[key]
 
-    // Push empty/nullish values to the bottom regardless of sort order
+    // Empty checks
     const isAEmpty = valA === null || valA === undefined || valA === ''
     const isBEmpty = valB === null || valB === undefined || valB === ''
     if (isAEmpty && isBEmpty) return 0
@@ -336,13 +404,11 @@ const sortedFilteredCardData = computed(() => {
     let diff = 0
 
     if (key === 'release_date') {
-      const timeA = new Date(valA).getTime()
-      const timeB = new Date(valB).getTime()
-      diff = (isNaN(timeA) ? 0 : timeA) - (isNaN(timeB) ? 0 : timeB)
+      const timeA = Date.parse(valA) || 0
+      const timeB = Date.parse(valB) || 0
+      diff = timeA - timeB
     } else if (key === 'price_usd') {
-      const numA = Number(valA) ?? 0
-      const numB = Number(valB) ?? 0
-      diff = numA - numB
+      diff = (Number(valA) || 0) - (Number(valB) || 0)
     } else {
       diff = String(valA).localeCompare(String(valB))
     }
@@ -405,8 +471,12 @@ const sortedFilteredCardData = computed(() => {
                   <!-- Set Selection -->
                   <v-col cols="12" md="8">
                     <v-combobox
+                      ref="setCombobox"
                       v-model="selectedSets"
+                      v-model:search="setSearchText"
                       :items="setData"
+                      item-title="title"
+                      item-value="value"
                       label="Magic Sets"
                       placeholder="Select sets to search in..."
                       variant="outlined"
@@ -414,6 +484,7 @@ const sortedFilteredCardData = computed(() => {
                       multiple
                       chips
                       clearable
+                      @keydown.enter.prevent="selectTopSet"
                     />
                   </v-col>
 
@@ -467,7 +538,7 @@ const sortedFilteredCardData = computed(() => {
     <!-- Image Size Options (Grid View Only) -->
     <v-btn-toggle
       v-if="viewMode === 'grid'"
-      v-model="imageSize"
+      v-model="currentImageSize"
       mandatory
       density="compact"
       class="ml-3"
@@ -476,7 +547,10 @@ const sortedFilteredCardData = computed(() => {
       <v-btn value="md">MD</v-btn>
       <v-btn value="lg">LG</v-btn>
     </v-btn-toggle>
-
+    <v-spacer />
+    <v-text-field v-model="dateRangeText" label="Release Date Range (YYYY-MM-DD - YYYY-MM-DD)" variant="outlined" density="compact" class="ml-4" clearable />
+    <v-spacer />
+    <v-text-field v-model="dynamicListName" label="Dynamic List Name" variant="outlined" density="compact" class="ml-4" clearable />
     <v-spacer />
 
     <!-- 1. SERVER QUERY SORT (Re-runs search on change) -->
@@ -556,13 +630,12 @@ const sortedFilteredCardData = computed(() => {
         <v-data-table
           :headers="allHeaders"
           :items="sortedFilteredCardData"
-          item-value="id"
+          :key="tableLoadKey"
           :items-per-page-options="itemsPerPageOptions"
-          v-model:items-per-page="itemsPerPage"
+          :items-per-page="itemsPerPage"
           @click:row="handleRowClick"
           class="elevation-0"
           hover
-          @update:sort-by="handleVuetifyHeaderSort"
         >
           <!-- Card Image Column -->
           <template v-slot:item.image_url="{ item }">
@@ -618,29 +691,27 @@ const sortedFilteredCardData = computed(() => {
             </div>
           </template>
           <!-- Card Price Column -->
-          <template v-slot:item.prices="{ item }">
-            <v-col cols="2">
-              <v-row v-if="item.prices?.usd">
-                <div class="card-text-cell">
-                  <div class="card-text-content">{{ item.prices?.usd ?? 'N/A' }}</div>
-                </div>
-              </v-row>
-              <v-row v-if="item.prices?.usd_foil">
-                <div class="card-text-cell">
-                  <div class="card-text-content">{{ item.prices?.usd_foil ?? 'N/A' }}</div>
-                </div>
-              </v-row>
-            </v-col>
+          <template v-slot:item.price_usd="{ item }">
+            <div class="d-flex flex-column text-caption">
+              <div v-if="item.price_usd !== null" class="card-text-content">
+                ${{ Number(item.price_usd).toFixed(2) }}
+              </div>
+              <div v-if="item.price_usd_foil !== null" class="card-text-content text-amber-darken-3">
+                ${{ Number(item.price_usd_foil).toFixed(2) }} (Foil)
+              </div>
+            </div>
           </template>
         </v-data-table>
       </div>
-      <div v-else :class="['card-grid', `size-${imageSize}`]">
+      <div v-else class="card-grid" :style="{ '--desktop-min-width': gridMinWidth }">
         <CardDisplay
           v-for="card in sortedFilteredCardData"
           :key="card.id"
           :card="card"
           viewMode="grid"
-          :imageSize="imageSize"
+          :imageSize="currentImageSize"
+          :addToList="dynamicListName === '' ? 'false' : 'true'"
+          :dynamicListName="dynamicListName"
         />
       </div>
     </v-card>
@@ -823,14 +894,6 @@ const sortedFilteredCardData = computed(() => {
   }
 }
 
-.card-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  padding: 16px;
-  justify-content: flex-start;
-}
-
 /* Adjust layout behavior based on size */
 .card-grid.size-sm {
   gap: 12px;
@@ -846,5 +909,23 @@ const sortedFilteredCardData = computed(() => {
 
 .cursor-pointer {
   cursor: pointer;
+}
+.card-grid {
+  display: grid;
+  width: 100%;
+  
+  /* Mobile: Always lock to 3 equal columns */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+}
+
+/* Desktop: Use imageSize toggle to dictate min column width */
+@media (min-width: 600px) {
+  .card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(var(--desktop-min-width, 200px), 1fr));
+    gap: 16px;
+    padding: 16px;
+  }
 }
 </style>

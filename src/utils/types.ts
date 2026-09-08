@@ -28,6 +28,7 @@ export interface Card {
   mana_cost?: string
   image_url_to_use?: string
   official_set_name?: string
+  is_foil?: boolean
   board_group?: string
   prices?: CardPrice[]
   card_from_set?: CardBackendData
@@ -44,6 +45,29 @@ export interface CardBackendData {
   slug: string
   text: string
   type: string
+}
+
+export interface Collection {
+  id: number
+  collection_name: string
+  description: string
+  type: string
+  game_type: string
+  owner_id: number
+  visibility: string
+  is_favorite: boolean
+  include_in_inventory: boolean
+  import_status: string
+}
+
+export interface UpdateCollectionPayload {
+  collection_name?: string
+  description?: string
+  is_favorite?: boolean
+  include_in_inventory?: boolean
+  type?: string
+  game_type?: string
+  visibility?: string
 }
 
 export interface EnrichedCardData {
@@ -69,6 +93,17 @@ export interface Deck {
   cards: Card[]
   sideboard_cards?: Card[]
   locked?: boolean
+}
+
+export interface DeckImportDTO {
+  name: string
+  mainboard: { name: string; count: number }[]
+  sideboard: { name: string; count: number }[]
+  format?: string
+  description?: string
+  sourceUrl?: string
+  archetype?: string
+  tags?: { name: string; count: number }[]
 }
 
 /** One row in the comparison matrix */

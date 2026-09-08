@@ -23,6 +23,7 @@ import UserDashboard from './components/UserDashboard.vue'
 import IssueDashboard from './components/IssueDashboard.vue'
 import EnumManagementDashboard from './components/EnumManagementDashboard.vue'
 import CollectionDataDashboard from './components/CollectionDataDashboard.vue'
+import PricingPanel from './components/PricingPanel.vue'
 
 const authRoutes = [
   {
@@ -81,6 +82,10 @@ const authRoutes = [
     path: '/user-dashboard',
     component: UserDashboard,
   },
+  {
+    path: '/pricing',
+    component: PricingPanel,
+  }, 
 ].map(route => ({
   ...route,
   meta: { ...(route.meta || {}), requiresAuth: true },
@@ -90,6 +95,7 @@ const routes = [
   { path: '/', component: CardListingVuetify },
   { path: '/decks', component: Decks },
   { path: '/decks/:deckId?', name: 'Decks', component: Decks, props: true },
+  { path: '/collections/:id', name: 'CollectionView', component: Collections, props: true },
   { path: '/collections', component: Collections },
   { path: '/settings', component: Settings },
   { path: '/login', component: Login },
@@ -100,24 +106,25 @@ const routes = [
 ]
 
 const router = createRouter({
-    history: createWebHistory(import.meta.env.BASE_URL),
-    routes
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes
 })
 
-const shouldCallBackend = Boolean(import.meta.env.VITE_ENABLE_AUTH === 'true');
+const shouldCallBackend = Boolean(import.meta.env.VITE_ENABLE_AUTH === 'true')
+
+// Initialize composables once outside the route guard callback
+const { user, fetchUser } = useAuth()
 
 router.beforeEach(async (to, from, next) => {
   if (!shouldCallBackend) return next()
 
-  const { user, fetchUser } = useAuth()
+  // Grab active Pinia/Composable instances lazily inside guard execution
   const { canAccess } = useAccessControl()
   const enums = useEnumsStore()
 
-   // Example: route meta might define requiredEnums: ['issue_types']
   const requiredEnums = to.meta.requiredEnums || []
 
   try {
-    // load each required domain if not present or version mismatch
     await Promise.all(requiredEnums.map(domain => {
       if (!enums.get(domain) || enums.get(domain).length === 0) {
         return enums.fetchDomain(domain)
@@ -125,11 +132,12 @@ router.beforeEach(async (to, from, next) => {
       return Promise.resolve()
     }))
   } catch (err) {
-    // log/handle but don't necessarily block navigation forever
     console.error('Failed to load enums for route', err)
   }
 
-  if (!user.value) await fetchUser()
+  if (!user.value) {
+    await fetchUser()
+  }
 
   if (to.meta.requiresAuth && !user.value) {
     return next('/login')
@@ -141,7 +149,5 @@ router.beforeEach(async (to, from, next) => {
 
   next()
 })
-
-
 
 export default router

@@ -1,53 +1,85 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import type { ProcessedSetData } from '@/composables/useMagicSetData'
 import { 
   createNewCollection, 
   deleteCollectionFromServer, 
   importCollectionFromExternalSource, 
   pollServerForImportStatus, 
-  retrieveCollections, 
+  retrieveCollections,
+  updateCollectionData,
   viewCardsInCollection 
 } from '@/api/collection'
 import { useSiteWideRouter } from '@/composables/useSitewideRouter'
 import { useSetData } from '@/composables/useMagicSetData'
+import ImageSizeSelector from '@/components/widgets/ImageSizeSelector.vue'
+import { Collection } from '@/utils/types'
+
+// Image sizing configuration
+type SizeKey = 'sm' | 'md' | 'lg';
+
+const desktopGridMinWidths: Record<SizeKey, string> = {
+  sm: '120px',
+  md: '160px',
+  lg: '220px'
+};
+const currentImageSize = ref<SizeKey>('md');
 
 const { routeToCardMetadata } = useSiteWideRouter()
+const route = useRoute()
+const router = useRouter()
+const isSyncingFromRoute = ref(false)
 
 const csvFile = ref<File | null>(null)
-const listOfCollections = ref<any[]>([])
+const rawCollections = ref<Collection[]>([])
+const listOfCollections = computed(() => {
+  return [...rawCollections.value].sort((a, b) => {
+    if (a.is_favorite !== b.is_favorite) {
+      return a.is_favorite ? -1 : 1
+    }
+    return a.collection_name.localeCompare(b.collection_name)
+  })
+})
 const selectedCollection = ref<number | null>(null)
+
+// Layout & UI State
+const isViewingCollection = ref(false)
+const dedupe = ref(true)
 const selectedMode = ref('merge')
 const importSummary = ref<string | null>(null)
 const isImporting = ref(false)
 const toastMessage = ref('')
 const toastColor = ref('success')
 const showToast = ref(false)
+const previousQuery = ref<Record<string, any>>({})
 
+// Card Data & Pagination State
 const cardsInCollection = ref<any[]>([])
 const currentPage = ref(1)
 const hasMore = ref(true)
 const isLoading = ref(false)
 const shouldExcludeMultiColor = ref(false)
 
+// Filter & Sort State
 const searchTerm = ref('')
-const debouncedSearchTerm = ref('')
-
 const sortKey = ref('price')
 const sortDirection = ref('desc')
 const activeColors = ref<string[]>([])
 const groupByName = ref(false)
 
-// Collection deletion state
+// Deletion State
 const deleteDialog = ref(false)
 const deleteSnackbar = ref(false)
 const collectionToDelete = ref<any>(null)
-const filteredCardTotalValue = computed(() => calculateFilteredCardTotalValue())
 const totalValueOfSelected = ref(0)
 
+// Set Picker & Combobox State
+const setMTGSetsSearchText = ref('')
+const dynamicListName = ref("")
 const selectedSets = ref<ProcessedSetData[]>([])
-const appliedSets = ref<ProcessedSetData[]>([])
-const { setData, setNameMap, loadSetData, isLoading: isSetDataLoading } = useSetData()
+const { setData, loadSetData, isLoading: isSetDataLoading } = useSetData()
+const selectedSetComboBox = ref<any>(null)
 
 const selectedRarities = ref(['common', 'uncommon', 'rare', 'mythic'])
 const rarities = [
@@ -58,7 +90,8 @@ const rarities = [
 ]
 
 const globalColorCounts = ref<Record<string, number>>({ W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 })
-const tab = ref('Create Collection')
+
+const tab = ref('View Collections') 
 const tabLabels = ['Create Collection', 'Add to Collections', 'View Collections']
 
 const newCollectionFields = reactive({
@@ -75,143 +108,368 @@ const modeOptions = [
   { title: 'Create New', value: 'new', subtitle: 'Create new entries only' }
 ]
 
-function searchAgainstSetData() {
-  // Snapshot the current UI selections into the applied state
-  appliedSets.value = [...selectedSets.value]
+// Construct backend request payload from reactive states
+const queryParams = computed(() => {
+  const setCodes = selectedSets.value
+    .map(set => {
+      if (typeof set === 'string') return set
+      return set?.value?.value || set?.value || set?.raw?.value || null
+    })
+    .filter(Boolean)
+    .join(',')
 
-  // Reset pagination to page 1, or execute refresh directly if already on page 1
-  if (currentPage.value !== 1) {
-    currentPage.value = 1
-  } else {
-    refreshFilteredCards()
+  return {
+    sort: {
+      key: sortKey.value,
+      direction: sortDirection.value
+    },
+    filters: {
+      colors: activeColors.value,
+      sets: setCodes,
+      rarities: selectedRarities.value,
+      excludeMultiColor: shouldExcludeMultiColor.value,
+      search: searchTerm.value,
+    },
+    page: currentPage.value
   }
+})
+
+// Centralized Router State Updater
+function applyFiltersToUrl(pageOverride?: number) {
+  console.log('[DEBUG applyFiltersToUrl] Called. isSyncingFromRoute:', isSyncingFromRoute.value, 'selectedCollection:', selectedCollection.value)
+  if (isSyncingFromRoute.value || !selectedCollection.value) {
+    console.log('[DEBUG applyFiltersToUrl] ABORTED due to guard flag or missing selectedCollection.')
+    return
+  }
+
+  const targetPage = pageOverride ?? currentPage.value
+
+  const setCodes = selectedSets.value
+    .map(set => {
+      if (typeof set === 'string') return set
+      return set?.value?.value || set?.value || set?.raw?.value || set?.title || null
+    })
+    .filter(Boolean)
+    .join(',')
+
+  const query: Record<string, any> = {
+    page: targetPage > 1 ? targetPage : undefined,
+    'sort[key]': sortKey.value,
+    'sort[direction]': sortDirection.value,
+    'filters[search]': searchTerm.value || undefined,
+    'filters[sets]': setCodes || undefined,
+    'filters[colors]': activeColors.value.length ? activeColors.value.join(',') : undefined,
+    'filters[rarities]': selectedRarities.value.length ? selectedRarities.value.join(',') : undefined,
+    'filters[excludeMultiColor]': shouldExcludeMultiColor.value ? 'true' : undefined,
+  }
+
+  Object.keys(query).forEach(key => query[key] === undefined && delete query[key])
+
+  console.warn('[DEBUG applyFiltersToUrl] Executing router.push to:', `/collections/${selectedCollection.value}`, query)
+  console.trace() // Shows who called applyFiltersToUrl
+
+  router.replace({
+    path: `/collections/${selectedCollection.value}`,
+    query
+  }).catch(() => {})
 }
 
-const queryParams = computed(() => ({
-  sort: {
-    key: sortKey.value,
-    direction: sortDirection.value
-  },
-  filters: {
-    colors: activeColors.value,
-    sets: appliedSets.value
-      .map(set => {
-        if (typeof set === 'string') return set
-        return set?.value?.value || set?.value || set?.raw?.value || null
-      })
-      .filter(Boolean)
-      .join(','),
-    rarities: selectedRarities.value.join(','),
-    excludeMultiColor: shouldExcludeMultiColor.value,
-    search: debouncedSearchTerm.value,
-  },
-  page: currentPage.value
-}))
+// Combobox Top Match Selector
+function selectTopSet() {
+  if (setMTGSetsSearchText.value && setMTGSetsSearchText.value.trim().length > 0) {
+    const filtered = selectedSetComboBox.value?.filteredItems || []
 
-// Debounce search term changes
-let searchTimeout: ReturnType<typeof setTimeout>
-watch(searchTerm, (newVal) => {
-  clearTimeout(searchTimeout)
-  searchTimeout = setTimeout(() => {
-    debouncedSearchTerm.value = newVal
-  }, 350)
-})
+    if (filtered.length > 0) {
+      const topItem = filtered[0].raw ?? filtered[0]
 
-// Reset to page 1 when filter parameters change
-watch(
-  [debouncedSearchTerm, activeColors, selectedRarities, shouldExcludeMultiColor, sortKey, sortDirection],
-  () => {
-    if (currentPage.value !== 1) {
-      currentPage.value = 1
-    } else {
-      refreshFilteredCards()
-    }
-  }
-)
-
-// Fetch cards when page changes directly
-watch(currentPage, () => {
-  if (currentPage.value === 1) {
-    refreshFilteredCards()
-  } else {
-    loadMoreCards()
-  }
-})
-
-onMounted(async () => {
-  await loadSetData()
-  await fetchCollections()
-  setupIntersectionObserver()
-})
-
-function setupIntersectionObserver() {
-  if (observer) observer.disconnect()
-
-  nextTick(() => {
-    if (!scrollAnchor.value) return
-
-    observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0]
-        if (
-          entry.isIntersecting && 
-          hasMore.value && 
-          !isLoading.value && 
-          cardsInCollection.value.length > 0
-        ) {
-          currentPage.value++
+      nextTick(() => {
+        const cleanedList = selectedSets.value.filter(s => typeof s !== 'string')
+        const exists = cleanedList.some(s => s.value === topItem.value)
+        if (!exists) {
+          cleanedList.push(topItem)
         }
-      },
-      { 
-        root: null, // Uses the browser viewport or scroll container
-        rootMargin: '200px', // Pre-load 200px before the user reaches the absolute bottom
-        threshold: 0.1 
-      }
-    )
+        selectedSets.value = [...cleanedList]
+        setMTGSetsSearchText.value = ''
+      })
+    }
+    return
+  }
 
-    observer.observe(scrollAnchor.value)
-  })
+  searchAgainstSetData()
 }
 
-// Watch for tab switching to attach observer when "View Collections" tab becomes active
-watch(tab, (newTab) => {
+function searchAgainstSetData() {
+  applyFiltersToUrl(1)
+}
+
+watch(tab, (newTab, oldTab) => {
+  console.log(`[DEBUG Tab Watcher] Changed from "${oldTab}" -> "${newTab}". route.params.id:`, route.params.id)
   if (newTab === 'View Collections') {
     setupIntersectionObserver()
+  } else if (oldTab === 'View Collections' && route.params.id) {
+    console.warn('[DEBUG Tab Watcher] Switched away from View Collections. Triggering router.push(/collections)')
+    console.trace() // Shows who/what changed tab
+    isViewingCollection.value = false
+    selectedCollection.value = null
+    router.push({ path: '/collections' })
   }
 })
 
-// Re-observe whenever the ref element changes or mounts in DOM
-watch(scrollAnchor, (el) => {
-  if (el) {
-    setupIntersectionObserver()
-  }
-})
+// Single Master Watcher: Syncs URL to UI & Fetches Data
+watch(
+  () => [route.params.id, route.query],
+  async (val) => {
+    // Suppress destructuring error if watcher payload is empty/undefined
+    if (!val || !Array.isArray(val)) return
 
-// Re-bind observer after cards update (in case anchor was moved or pushed down)
-watch(cardsInCollection, () => {
-  nextTick(() => {
-    if (scrollAnchor.value && !observer) {
-      setupIntersectionObserver()
+    const [newId, newQuery] = val
+    
+    // FIX: Grab the snapshot saved BEFORE this router push occurred
+    const oldQuery = previousQuery.value
+
+    console.log('[DEBUG Master Watcher] Fired!', { newId, newQuery, oldQuery })
+
+    const rawId = route.params.id ? String(route.params.id) : null
+    const collectionId = rawId ? parseInt(rawId, 10) : null
+
+    if (!collectionId || isNaN(collectionId)) {
+      console.warn('[DEBUG Master Watcher] No valid collectionId!')
+      isViewingCollection.value = false
+      selectedCollection.value = null
+      return
     }
-  })
+
+    isSyncingFromRoute.value = true
+    selectedCollection.value = collectionId
+    isViewingCollection.value = true
+    tab.value = 'View Collections'
+
+    syncUiFromQuery((newQuery as Record<string, any>) || route.query)
+
+    if (!setData.value.length) {
+      loadSetData().then(() => {
+        const q = (newQuery as Record<string, any>) || route.query
+        const urlSets = q['filters[sets]'] ? (q['filters[sets]'] as string).split(',') : []
+        if (urlSets.length && setData.value.length) {
+          selectedSets.value = setData.value.filter(item => urlSets.includes(item.value))
+        }
+      }).catch(() => {})
+    }
+
+    // Correctly check if ONLY the page number incremented
+    const isPagePush =
+      oldQuery &&
+      newQuery &&
+      newQuery.page &&
+      Number(newQuery.page) > 1 &&
+      String(newQuery.page) !== String(oldQuery.page) &&
+      (newQuery['filters[search]'] || '') === (oldQuery['filters[search]'] || '')
+
+    // IMPORTANT: Take a snapshot copy of newQuery for the NEXT watcher tick
+    previousQuery.value = { ...newQuery }
+
+    if (isPagePush) {
+      await loadMoreCards()
+    } else {
+      await refreshFilteredCards()
+    }
+
+    await nextTick()
+    isSyncingFromRoute.value = false
+  },
+  { immediate: true }
+)
+
+function syncUiFromQuery(q: Record<string, any>) {
+  console.log('[DEBUG syncUiFromQuery] Hydrating controls with query:', q)
+  currentPage.value = Number(q.page) || 1
+  sortKey.value = (q['sort[key]'] as string) || 'price'
+  sortDirection.value = (q['sort[direction]'] as string) || 'desc'
+  searchTerm.value = (q['filters[search]'] as string) || ''
+  shouldExcludeMultiColor.value = q['filters[excludeMultiColor]'] === 'true'
+
+  if (q['filters[colors]']) {
+    activeColors.value = (q['filters[colors]'] as string).split(',')
+  } else {
+    activeColors.value = []
+  }
+
+  if (q['filters[rarities]']) {
+    selectedRarities.value = (q['filters[rarities]'] as string).split(',')
+  } else {
+    selectedRarities.value = ['common', 'uncommon', 'rare', 'mythic']
+  }
+
+  const urlSets = q['filters[sets]'] ? (q['filters[sets]'] as string).split(',') : []
+  if (urlSets.length) {
+    if (setData.value.length) {
+      selectedSets.value = setData.value.filter(item => urlSets.includes(item.value))
+    } else {
+      selectedSets.value = urlSets.map(code => ({ title: code, value: code })) as any[]
+    }
+  } else {
+    selectedSets.value = []
+  }
+}
+
+async function refreshFilteredCards() {
+  if (!selectedCollection.value) return
+
+  isLoading.value = true
+  try {
+    const response = await viewCardsInCollection(selectedCollection.value, queryParams.value)
+    cardsInCollection.value = response.data.data || []
+    totalValueOfSelected.value = response.data.aggregations?.filtered?.market_value || 0
+    
+    const meta = response.data.meta
+    hasMore.value = meta ? meta.current_page < meta.last_page : false
+    
+    computeGlobalColorCounts(cardsInCollection.value)
+  } catch (error) {
+    console.error('Failed to fetch filtered cards:', error)
+    cardsInCollection.value = []
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const loadMoreCards = async () => {
+  if (!hasMore.value || isLoading.value || !selectedCollection.value) return
+
+  isLoading.value = true
+  try {
+    const targetPage = Number(route.query.page) || (currentPage.value + 1)
+
+    const params = {
+      ...queryParams.value,
+      page: targetPage,
+    }
+
+    const response = await viewCardsInCollection(selectedCollection.value, params)
+    const newCards = response.data.data || []
+
+    // Deduplicate and append new cards onto existing list
+    const cardMap = new Map(cardsInCollection.value.map(card => [card.id, card]))
+    newCards.forEach((card: any) => cardMap.set(card.id, card))
+    cardsInCollection.value = Array.from(cardMap.values())
+
+    // Sync active page state
+    currentPage.value = targetPage
+
+    const meta = response.data.meta
+    hasMore.value = meta ? meta.current_page < meta.last_page : false
+  } catch (error) {
+    console.error('Error loading cards:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const fetchCollections = async () => {
+  try {
+    const response = await retrieveCollections()
+    rawCollections.value = response.map((collection: Collection) => collection) || []
+  } catch (error) {
+    console.error('Error fetching collections:', error)
+  }
+}
+
+async function patchCollection(collection: Collection, changes) {
+  // 1. Store previous state for optimistic rollback if needed
+  const originalState = { ...collection }
+
+  // 2. Optimistically apply change to UI immediately (snappy UX)
+  Object.assign(collection, changes)
+
+  try {
+    // 3. Send ONLY the changed key(s) to Laravel
+    const updatedCollection = await updateCollectionData(collection.id, changes)
+    
+    // 4. Sync backend response back to local object
+    Object.assign(collection, updatedCollection)
+  } catch (error) {
+    // Revert UI on error
+    Object.assign(collection, originalState)
+    console.error('Failed to update collection:', error)
+    // Optional: show snackbar notification here
+  }
+}
+
+function computeGlobalColorCounts(cards: any[]) {
+  const counts: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }
+  for (const card of cards) {
+    const raw = card.card_from_set?.colorIdentities || ''
+    const codes = typeof raw === 'string' ? raw.split(',').map(c => c.trim()) : Array.isArray(raw) ? raw : []
+
+    if (codes.length === 0) {
+      counts['C']++
+    } else {
+      for (const code of codes) {
+        if (counts[code] !== undefined) counts[code]++
+      }
+    }
+  }
+  globalColorCounts.value = counts
+}
+
+const calculateFilteredCardTotalValue = (): number => {
+  return cardsInCollection.value.reduce((total, card) => {
+    const price = card.is_foil
+      ? card.card_from_set?.card_metadata?.prices?.usd_foil
+      : card.card_from_set?.card_metadata?.prices?.usd
+    return total + (price ? Number(price) * card.card_count : 0)
+  }, 0)
+}
+
+const filteredCardTotalValue = computed(() => calculateFilteredCardTotalValue())
+
+const filteredAndSortedCards = computed(() => {
+  return cardsInCollection.value ? [...cardsInCollection.value] : []
 })
+
+const groupedCards = computed(() => {
+  const cards = filteredAndSortedCards.value || []
+  if (!groupByName.value) return cards
+
+  const map = new Map<string, any>()
+  for (const card of cards) {
+    const name = card.card_from_set?.name || 'Unknown'
+    if (!map.has(name)) {
+      map.set(name, { ...card, card_count: card.card_count, variants: [card] })
+    } else {
+      const existing = map.get(name)
+      existing.card_count += card.card_count
+      existing.variants.push(card)
+    }
+  }
+  return Array.from(map.values())
+})
+
+const viewCollection = (collectionId: number) => {
+  router.push({ path: `/collections/${collectionId}` })
+}
+
+const backToCollections = () => {
+  isViewingCollection.value = false
+  selectedCollection.value = null
+  router.push({ path: '/collections' })
+}
 
 function onColorFilterChange(newColors: string[]) {
   activeColors.value = newColors
-}
-
-function excludeMultiColor() {
-  shouldExcludeMultiColor.value = !shouldExcludeMultiColor.value
+  applyFiltersToUrl(1)
 }
 
 const submitImport = async () => {
   if (!csvFile.value || !selectedCollection.value) return
-  
   isImporting.value = true
   const formData = new FormData()
   formData.append('csv', csvFile.value)
   formData.append('collection_id', String(selectedCollection.value))
   formData.append('mode', selectedMode.value)
+  const isDedupe = Boolean(dedupe.value)
+  formData.append('dedupe', isDedupe ? '1' : '0')
+  console.log('Submitting import with dedupe:', isDedupe)
 
   await importCollectionFromExternalSource(formData)
   pollImportStatus(selectedCollection.value)
@@ -238,7 +496,7 @@ const pollImportStatus = async (collectionId: number) => {
 const createCollection = async () => {
   if (!newCollectionFields.name.trim()) return
   try {
-    const response = await createNewCollection({
+    await createNewCollection({
       name: newCollectionFields.name,
       description: newCollectionFields.description
     })
@@ -248,104 +506,6 @@ const createCollection = async () => {
   } catch (error) {
     console.error('Error creating collection:', error)
   }
-}
-
-const calculateFilteredCardTotalValue = (): number => {
-  return cardsInCollection.value.reduce((total, card) => {
-    const price = card.is_foil
-      ? card.card_from_set?.card_metadata?.prices?.usd_foil
-      : card.card_from_set?.card_metadata?.prices?.usd
-
-    return total + (price ? Number(price) * card.card_count : 0)
-  }, 0)
-}
-
-const viewCollection = async (collectionId: number) => {
-  selectedCollection.value = collectionId
-  cardsInCollection.value = []
-  hasMore.value = true
-  
-  if (currentPage.value !== 1) {
-    currentPage.value = 1
-  } else {
-    await refreshFilteredCards()
-  }
-  
-  tab.value = 'View Collections'
-}
-
-const fetchCollections = async () => {
-  try {
-    const response = await retrieveCollections()
-    listOfCollections.value = response.data
-  } catch (error) {
-    console.error('Error fetching collections:', error)
-  }
-}
-
-async function refreshFilteredCards() {
-  if (!selectedCollection.value) return
-
-  isLoading.value = true
-  try {
-    const response = await viewCardsInCollection(selectedCollection.value, queryParams.value)
-    cardsInCollection.value = response.data.data || []
-    totalValueOfSelected.value = response.data.aggregations?.filtered?.market_value || 0
-    
-    const meta = response.data.meta
-    hasMore.value = meta ? meta.current_page < meta.last_page : false
-    computeGlobalColorCounts(cardsInCollection.value)
-  } catch (error) {
-    console.error('Failed to fetch filtered cards:', error)
-  } finally {
-    isLoading.value = false
-  }
-}
-
-const loadMoreCards = async () => {
-  if (!hasMore.value || isLoading.value || !selectedCollection.value) return
-
-  isLoading.value = true
-  try {
-    const response = await viewCardsInCollection(selectedCollection.value, queryParams.value)
-    const newCards = response.data.data || []
-
-    const cardMap = new Map(cardsInCollection.value.map(card => [card.id, card]))
-    newCards.forEach((card: any) => cardMap.set(card.id, card))
-    cardsInCollection.value = Array.from(cardMap.values())
-
-    const meta = response.data.meta
-    hasMore.value = meta ? meta.current_page < meta.last_page : false
-  } catch (error) {
-    console.error('Error loading cards:', error)
-  } finally {
-    isLoading.value = false
-  }
-}
-
-function computeGlobalColorCounts(cards: any[]) {
-  const counts: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }
-
-  for (const card of cards) {
-    const raw = card.card_from_set?.colorIdentities || ''
-    const codes = typeof raw === 'string'
-      ? raw.split(',').map(c => c.trim())
-      : Array.isArray(raw)
-        ? raw
-        : []
-
-    if (codes.length === 0) {
-      counts['C']++
-    } else {
-      for (const code of codes) {
-        if (counts[code] !== undefined) {
-          counts[code]++
-        }
-      }
-    }
-  }
-
-  globalColorCounts.value = counts
 }
 
 function confirmDelete(collection: any) {
@@ -368,73 +528,50 @@ async function deleteCollection() {
   }
 }
 
-const filteredAndSortedCards = computed(() => {
-  let cards = cardsInCollection.value ? [...cardsInCollection.value] : []
-
-  // 🔍 Client-side Search filter (if handling locally)
-  if (searchTerm.value) {
-    cards = cards.filter(card => {
-      const name = card.card_from_set?.name || ''
-      return name.toLowerCase().includes(searchTerm.value.toLowerCase())
-    })
+// Fixed onMounted: Load collections immediately without waiting on set metadata
+onMounted(() => {
+  fetchCollections()
+  if (!setData.value.length) {
+    loadSetData()
   }
+  setupIntersectionObserver()
+})
 
-  // 🎨 Client-side Color filter
-  if (activeColors.value.length > 0) {
-    cards = cards.filter(card => {
-      const raw = card.card_from_set?.colorIdentities || ''
-      const codes = typeof raw === 'string'
-        ? raw.split(',').map(c => c.trim())
-        : Array.isArray(raw)
-          ? raw
-          : []
+function setupIntersectionObserver() {
+  if (observer) observer.disconnect()
 
-      return codes.every(code => activeColors.value.includes(code))
-    })
-  }
+  nextTick(() => {
+    if (!scrollAnchor.value) return
 
-  // 🔀 Client-side Sorting
-  return cards.sort((a, b) => {
-    if (sortKey.value === 'name') {
-      const nameA = a.card_from_set?.name || ''
-      const nameB = b.card_from_set?.name || ''
-      return sortDirection.value === 'asc' 
-        ? nameA.localeCompare(nameB) 
-        : nameB.localeCompare(nameA)
-    }
-    if (sortKey.value === 'count') {
-      return sortDirection.value === 'asc' 
-        ? a.card_count - b.card_count 
-        : b.card_count - a.card_count
-    }
-    return 0
+    observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0]
+        if (
+          entry.isIntersecting && 
+          hasMore.value && 
+          !isLoading.value && 
+          isViewingCollection.value &&
+          cardsInCollection.value.length > 0
+        ) {
+          applyFiltersToUrl(currentPage.value + 1)
+        }
+      },
+      { 
+        root: null,
+        rootMargin: '200px',
+        threshold: 0.1 
+      }
+    )
+
+    observer.observe(scrollAnchor.value)
   })
+}
+
+watch(scrollAnchor, (el) => {
+  if (el) setupIntersectionObserver()
 })
 
-const groupedCards = computed(() => {
-  const cards = filteredAndSortedCards.value || []
-  if (!groupByName.value) return cards
-
-  const map = new Map<string, any>()
-
-  for (const card of cards) {
-    const name = card.card_from_set?.name || 'Unknown'
-
-    if (!map.has(name)) {
-      map.set(name, {
-        ...card,
-        card_count: card.card_count,
-        variants: [card]
-      })
-    } else {
-      const existing = map.get(name)
-      existing.card_count += card.card_count
-      existing.variants.push(card)
-    }
-  }
-
-  return Array.from(map.values())
-})
+const gridMinWidth = computed(() => desktopGridMinWidths[currentImageSize.value as SizeKey] || '160px')
 </script>
 
 <template>
@@ -550,7 +687,7 @@ const groupedCards = computed(() => {
                         <v-select
                         v-model="selectedCollection"
                         :items="listOfCollections"
-                        item-title="name"
+                        item-title="collection_name"
                         item-value="id"
                         label="Choose Collection"
                         placeholder="Select a collection..."
@@ -563,16 +700,16 @@ const groupedCards = computed(() => {
                         <!-- dropdown rows -->
                         <template v-slot:item="{ props, item }">
                             <v-list-item v-bind="props">
-                            <v-list-item-title>{{ item.raw.collection_name }}</v-list-item-title>
-                            <v-list-item-subtitle v-if="item.raw.description">
-                                {{ item.raw.description }}
+                            <v-list-item-title>{{ item.collection_name }}</v-list-item-title>
+                            <v-list-item-subtitle v-if="item.description">
+                                {{ item.description }}
                             </v-list-item-subtitle>
                             </v-list-item>
                         </template>
 
                         <!-- selected label -->
                         <template v-slot:selection="{ item }">
-                            <span v-if="item && item.raw">{{ item.raw.collection_name }}</span>
+                            <span v-if="item">{{ item.collection_name }}</span>
                         </template>
                         </v-select>
 
@@ -589,8 +726,8 @@ const groupedCards = computed(() => {
                         >
                             <template v-slot:item="{ props, item }">
                                 <v-list-item v-bind="props">
-                                    <v-list-item-title>{{ item.raw.title }}</v-list-item-title>
-                                    <v-list-item-subtitle>{{ item.raw.subtitle }}</v-list-item-subtitle>
+                                    <v-list-item-title>{{ item.title }}</v-list-item-title>
+                                    <v-list-item-subtitle>{{ item.subtitle }}</v-list-item-subtitle>
                                 </v-list-item>
                             </template>
                         </v-select>
@@ -608,6 +745,11 @@ const groupedCards = computed(() => {
                             class="mb-6"
                             :rules="[v => !!v || 'Please select a CSV file']"
                         ></v-file-input>
+
+                        <div>
+                          <input type="checkbox" id=dedupeCheck v-model="dedupe" />
+                          <label for="dedupeCheck">Dedupe Cards on Import</label>
+                        </div>
 
                         <!-- Action Buttons -->
                         <div class="form-actions">
@@ -646,416 +788,405 @@ const groupedCards = computed(() => {
 
         <!-- View Collections Tab -->
         <v-window-item value="View Collections">
-            <v-card class="collections-view-card">
-                <v-card-text class="pa-8">
-                    <div class="form-header mb-6">
-                        <h2 class="text-h5 font-weight-bold text-primary mb-2">
-                            <v-icon icon="mdi-view-list" class="mr-2"></v-icon>
-                            Your Collections
-                        </h2>
-                        <p class="text-body-1 text-medium-emphasis">
-                            Browse and manage your Magic card collections
-                        </p>
-                    </div>
+          <v-card class="collections-view-card elevation-1" variant="flat">
+            <!-- Reduced container padding to prevent desktop blowout -->
+            <v-card-text class="pa-3 pa-md-6">
+              
+              <!-- LEVEL 1: List of Collections -->
+              <div v-if="!isViewingCollection">
+                <!-- Grid optimized for desktop density: 4 cards/row on lg, 6 on xl -->
+                <v-row v-if="listOfCollections.length > 0" dense>
+                  <v-col 
+                    v-for="collection in listOfCollections" 
+                    :key="collection.id" 
+                    cols="12" 
+                    sm="6" 
+                    md="4" 
+                    lg="3" 
+                    xl="2"
+                  >
+                      <v-card class="collection-item-card position-relative d-flex flex-column justify-space-between h-100" variant="outlined">
+                      <!-- Top Header Action Row (Favorite + Menu) -->
+                      <div class="d-flex align-center justify-space-between pa-3 pb-0">
+                        <div class="d-flex align-center ga-1 flex-wrap">
+                          <v-chip size="x-small" color="primary" variant="tonal" class="text-uppercase font-weight-bold">
+                            {{ collection.game_type || 'MTG' }}
+                          </v-chip>
+                          <v-chip size="x-small" variant="outlined" class="text-capitalize text-medium-emphasis">
+                            {{ collection.type || 'Collection' }}
+                          </v-chip>
+                        </div>
 
-                    <!-- Collection List (only show if no cards are being viewed) -->
-                    <div v-if="cardsInCollection.length === 0">
-                        <v-row v-if="listOfCollections.length > 0">
-                            <v-col 
-                                v-for="collection in listOfCollections" 
-                                :key="collection.id"
-                                cols="12" 
-                                md="6" 
-                                lg="4"
-                            >
-                                <v-card class="collection-item-card" variant="outlined">
-                                    <v-card-text class="pa-4">
-                                        <h3 class="text-h6 font-weight-bold mb-2">
-                                            {{ collection.collection_name }}
-                                        </h3>
-                                        <span>
-                                            <p v-if="collection.description" class="text-body-2 text-medium-emphasis">
-                                                {{ collection.description }}
-                                            </p>
-                                            <p v-else class="text-body-2 text-disabled">
-                                                    No description provided
-                                                </p>
-                                            <p v-if="collection.total_cards" class="text-body-2 text-medium-emphasis">
-                                                Unique:{{ collection.total_unique_cards }}
-                                            </p>
-                                            <p v-if="collection.total_cards" class="text-body-2 text-medium-emphasis">
-                                                Total:{{ collection.total_cards }}
-                                            </p>                                            
-                                        </span>                                        
-                                    </v-card-text>
-                                    <v-card-actions class="pa-4 pt-0">
-                                        <v-btn 
-                                            variant="outlined" 
-                                            size="small"
-                                            prepend-icon="mdi-eye"
-                                            @click="viewCollection(collection.id)"
-                                        >
-                                            View Cards
-                                        </v-btn>
-                                        <v-spacer></v-spacer>
-                                    </v-card-actions>
-                                    <v-menu location="bottom end">
-                                    <template v-slot:activator="{ props }">
-                                        <v-btn v-bind="props" variant="text" size="small" icon="mdi-dots-vertical"></v-btn>
-                                    </template>
-                                    <v-list density="compact">
-                                        <v-list-item @click="confirmDelete(collection)">
-                                        <v-list-item-title>Delete</v-list-item-title>
-                                        </v-list-item>
-                                    </v-list>
-                                    </v-menu>                                    
-                                </v-card>
-                            </v-col>
-                            <v-dialog v-model="deleteDialog" max-width="500">
-                                <v-card>
-                                    <v-card-title class="text-h6 font-weight-bold">
-                                    Delete Collection
-                                    </v-card-title>
-                                    <v-card-text>
-                                    Are you sure you want to delete <strong>{{ collectionToDelete?.name }}</strong>? This action cannot be undone.
-                                    </v-card-text>
-                                    <v-card-actions>
-                                    <v-spacer></v-spacer>
-                                    <v-btn variant="text" @click="deleteDialog = false">Cancel</v-btn>
-                                    <v-btn color="error" variant="elevated" @click="deleteCollection">Delete</v-btn>
-                                    </v-card-actions>
-                                </v-card>
-                            </v-dialog>  
-                            <v-snackbar v-model="deleteSnackbar" color="success" timeout="3000">
-                            Collection deleted successfully.
-                            </v-snackbar>                                                      
-                        </v-row>
-                        <v-empty-state
-                            v-else
-                            icon="mdi-folder-plus"
-                            title="No Collections Yet"
-                            text="Create your first collection to start organizing your Magic cards"
-                        >
-                            <template v-slot:actions>
-                                <v-btn
-                                    @click="tab = 'Create Collection'"
-                                    color="primary"
-                                    variant="elevated"
-                                    prepend-icon="mdi-plus"
-                                >
-                                    Create Collection
-                                </v-btn>
+                        <!-- Action Buttons Container (In-flow flex layout instead of absolute) -->
+                        <div class="d-flex align-center">
+                          <v-btn
+                            size="x-small"
+                            variant="text"
+                            :color="collection.is_favorite ? 'error' : 'medium-emphasis'"
+                            :icon="collection.is_favorite ? 'mdi-heart' : 'mdi-heart-outline'"
+                            @click.stop="patchCollection(collection, { is_favorite: !collection.is_favorite })"
+                          />
+                          
+                          <v-menu location="bottom end">
+                            <template v-slot:activator="{ props }">
+                              <v-btn v-bind="props" variant="text" size="x-small" icon="mdi-dots-vertical" color="medium-emphasis" />
                             </template>
-                        </v-empty-state>
-                    </div>
+                            <v-list density="compact" min-width="130">
+                              <v-list-item @click="openEditModal(collection)" prepend-icon="mdi-pencil-outline">
+                                <v-list-item-title>Edit</v-list-item-title>
+                              </v-list-item>
+                              <v-divider />
+                              <v-list-item @click="confirmDelete(collection)" prepend-icon="mdi-delete-outline" color="error">
+                                <v-list-item-title class="text-error">Delete</v-list-item-title>
+                              </v-list-item>
+                            </v-list>
+                          </v-menu>
+                        </div>
+                      </div>
 
-                    <!-- Card Display Section (show when cards are loaded) -->
-                    <div v-if="cardsInCollection.length > 0" class="cards-section">
-                        <!-- Back Button -->
-                        <v-btn 
-                            @click="cardsInCollection = []"
-                            variant="outlined"
-                            prepend-icon="mdi-arrow-left"
-                            class="mb-4"
+                      <v-card-text class="pa-4 pr-12 d-flex flex-column justify-space-between h-100">
+                        <div>
+                          <!-- Title & Description -->
+                          <h3 class="text-h6 font-weight-bold mb-1 text-truncate" :title="collection.collection_name">
+                            {{ collection.collection_name }}
+                          </h3>
+                          
+                          <p v-if="collection.description" class="text-body-2 text-medium-emphasis text-clamp-2 mb-4">
+                            {{ collection.description }}
+                          </p>
+                          <p v-else class="text-body-2 text-disabled font-italic mb-4">
+                            No description provided
+                          </p>
+                        </div>
+
+                        <!-- Metrics Row -->
+                        <div class="metrics-row d-flex align-center ga-3 pt-2 border-t">
+                          <div class="d-flex flex-column">
+                            <span class="text-caption text-medium-emphasis">Unique</span>
+                            <span class="text-subtitle-2 font-weight-bold">{{ collection.total_unique_cards || 0 }}</span>
+                          </div>
+                          
+                          <v-divider vertical class="my-1" />
+
+                          <div class="d-flex flex-column">
+                            <span class="text-caption text-medium-emphasis">Total Cards</span>
+                            <span class="text-subtitle-2 font-weight-bold">{{ collection.total_cards || 0 }}</span>
+                          </div>
+                        </div>
+                      </v-card-text>
+
+                      <!-- Card Actions Footer -->
+                      <v-card-actions class="pa-4 pt-0 d-flex align-center justify-space-between">
+                        <v-btn
+                          variant="flat"
+                          color="primary"
+                          size="small"
+                          prepend-icon="mdi-cards-outline"
+                          @click="viewCollection(collection.id)"
                         >
-                            Back to Collections
+                          View Cards
                         </v-btn>
 
-                        <!-- Search and Sort Controls -->
-                        <v-card class="mb-4" variant="outlined">
-                            <v-card-text class="pa-4">
-                                <v-row>
-                                    <v-col cols="12" md="8">
-                                        <v-text-field
-                                            v-model="searchTerm"
-                                            label="Search cards..."
-                                            variant="outlined"
-                                            density="comfortable"
-                                            prepend-inner-icon="mdi-magnify"
-                                            clearable
-                                        ></v-text-field>
-                                    </v-col>
-                                    <v-col cols="10" md="4">
-                                        <v-select
-                                            v-model="sortKey"
-                                            :items="[
-                                                { title: 'Price', value: 'price' },
-                                                { title: 'Name', value: 'name' },
-                                                { title: 'Count', value: 'count' },
-                                                { title: 'Condition', value: 'condition' }
-                                            ]"
-                                            label="Sort by"
-                                            variant="outlined"
-                                            density="comfortable"
-                                        ></v-select>
-                                    </v-col>
-                                    <v-col cols="2" md="4">
-                                        <v-btn v-model="sortDirection" @click="sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'" variant="outlined" class="mt-4">
-                                            <v-icon v-if="sortDirection === 'asc'">mdi-arrow-up</v-icon>
-                                            <v-icon v-else>mdi-arrow-down</v-icon>
-                                        </v-btn>
-                                    </v-col>
-                                </v-row>
-                            <v-row>
-                            <!-- Color Filters -->
-                            <v-col cols="12" md="6">
-                                <h3 class="text-h6 mb-3">Colors</h3>
-                                <div class="color-filters">
-                                    <ColorFilterChips
-                                    :filteredCardData="filteredAndSortedCards"
-                                    :activeColors="activeColors"
-                                    :globalColorCounts="globalColorCounts"
-                                    @update:activeColors="onColorFilterChange"
-                                    />
-                                </div>
-                            </v-col>
-                            <v-col between>
-                                <v-row>
-                                    <v-col class="pa-2 ma-2">
-                                        <v-checkbox @click="excludeMultiColor">Exclude Multicolor</v-checkbox>
-                                    </v-col>
-                                    <v-col class="pa-2 ma-2">
-                                        <v-switch v-model="groupByName" label="Group by Card Name" color="primary" class="mt-4" />
-                                    </v-col>
-                                </v-row>
-                            </v-col>
-                            <!-- Rarity Filters -->
-                            <v-col cols="12" md="6">
-                                <h3 class="text-h6 mb-3">Rarity</h3>
-                                <div class="rarity-filters">
-                                <v-chip-group v-model="selectedRarities" multiple>
-                                    <v-chip  v-for="rarity in rarities" :key="rarity.value" :value="rarity.value" :color="rarity.color" variant="outlined" filter>
-                                    <v-icon :icon="rarity.icon" start></v-icon>
-                                    {{ rarity.label }}
-                                    </v-chip>
-                                </v-chip-group>
-                                </div>
-                            </v-col>
-                            </v-row>
-                            <v-row>
-                                <!-- Set Selection -->
-                                <v-col cols="12" md="8">
-                                    <v-combobox
-                                    v-model="selectedSets"
-                                    :items="setData"
-                                    label="Magic Sets"
-                                    placeholder="Select sets to search in..."
-                                    variant="outlined"
-                                    density="comfortable"
-                                    multiple
-                                    chips
-                                    clearable
-                                    />
-                                </v-col>                                
-                            </v-row>
-                            <v-row>
-                                <div class="filter-actions mt-4">
-                                    <v-btn 
-                                        @click="searchAgainstSetData"
-                                        color="primary"
-                                        size="large"
-                                        prepend-icon="mdi-magnify"
-                                        class="mr-3">
-                                        Search Cards
-                                    </v-btn>
-                                </div>                                
-                                <div class="filter-summary mt-4">
-                                    <p class="text-body-2 text-medium-emphasis">
-                                        Showing {{ filteredAndSortedCards.length }} cards
-                                        (Total Value - Displayed: ${{ filteredCardTotalValue.toFixed(2) }})
-                                    </p>
-                                    <p>
-                                        (Total Value - All: ${{ totalValueOfSelected.toFixed(2) }})
-                                    </p>
-                                </div>
-                            </v-row>
-                            </v-card-text>
-                        </v-card>
+                        <!-- Inventory Toggle Action -->
+                        <v-tooltip :text="collection.include_in_inventory ? 'Included in Active Inventory' : 'Excluded from Inventory'" location="top">
+                          <template v-slot:activator="{ props }">
+                            <v-btn
+                              v-bind="props"
+                              size="small"
+                              variant="tonal"
+                              :color="collection.include_in_inventory ? 'success' : 'grey-darken-1'"
+                              :icon="collection.include_in_inventory ? 'mdi-archive-check' : 'mdi-archive-cancel-outline'"
+                              @click.stop="patchCollection(collection, { include_in_inventory: !collection.include_in_inventory })"
+                            />
+                          </template>
+                        </v-tooltip>
+                      </v-card-actions>
+                    </v-card>
+                  </v-col>
+                  <v-dialog v-model="deleteDialog" max-width="500">
+                    <v-card>
+                        <v-card-title class="text-h6 font-weight-bold">
+                        Delete Collection
+                        </v-card-title>
+                        <v-card-text>
+                        Are you sure you want to delete <strong>{{ collectionToDelete?.name }}</strong>? This action cannot be undone.
+                        </v-card-text>
+                        <v-card-actions>
+                        <v-spacer></v-spacer>
+                        <v-btn variant="text" @click="deleteDialog = false">Cancel</v-btn>
+                        <v-btn color="error" variant="elevated" @click="deleteCollection">Delete</v-btn>
+                        </v-card-actions>
+                    </v-card>
+                </v-dialog>                    
+                </v-row>
+                <v-empty-state v-else icon="mdi-folder-plus" title="No Collections Yet" />
+              </div>
 
-                        <!-- Cards Grid -->
-                        <div class="card-grid">
-                            <CardDisplay
-                                v-for="card in groupedCards"
-                                :key="card.id"
-                                :card="card"
-                                class="card-item"
-                                viewMode="grid"
-                                imageSize="lg" />
-                        </div>
-                        <!-- Dedicated Scroll Anchor -->
-                        <div 
-                            ref="scrollAnchor" 
-                            class="scroll-anchor py-4 text-center"
+              <!-- LEVEL 2: Cards Section (Shows when isViewingCollection === true) -->
+              <div v-else class="cards-section">
+                <!-- Back Button -->
+                <v-btn 
+                  @click="backToCollections()"
+                  variant="outlined"
+                  prepend-icon="mdi-arrow-left"
+                  class="mb-4"
+                >
+                  Back to Collections
+                </v-btn>
+                <ImageSizeSelector v-model="currentImageSize" class="d-none d-sm-flex" />
+                <!-- Search and Sort Controls Card (ALWAYS VISIBLE WHEN VIEWING A COLLECTION) -->
+                <v-card class="mb-4" variant="outlined">
+                  <v-card-text class="pa-4">
+                    <v-row>
+                      <!-- Search Term Field -->
+                      <v-col cols="12" md="8">
+                        <v-text-field
+                          v-model="searchTerm"
+                          label="Search cards..."
+                          variant="outlined"
+                          density="comfortable"
+                          prepend-inner-icon="mdi-magnify"
+                          clearable
+                        ></v-text-field>
+                      </v-col>
+
+                      <!-- Sort By Dropdown -->
+                      <v-col cols="10" md="3">
+                        <v-select
+                          v-model="sortKey"
+                          :items="[
+                            { title: 'Price', value: 'price' },
+                            { title: 'Name', value: 'name' },
+                            { title: 'Count', value: 'count' },
+                            { title: 'Condition', value: 'condition' }
+                          ]"
+                          label="Sort by"
+                          variant="outlined"
+                          density="comfortable"
+                        ></v-select>
+                      </v-col>
+
+                      <!-- Sort Direction Toggle -->
+                      <v-col cols="2" md="1">
+                        <v-btn 
+                          @click="sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'" 
+                          variant="outlined" 
+                          icon
                         >
-                            <v-progress-circular
-                            v-if="isLoading"
-                            indeterminate
-                            color="primary"
-                            ></v-progress-circular>
-                            <span v-else-if="!hasMore && cardsInCollection.length > 0" class="text-caption text-medium-emphasis">
-                            End of collection
-                            </span>
+                          <v-icon v-if="sortDirection === 'asc'">mdi-arrow-up</v-icon>
+                          <v-icon v-else>mdi-arrow-down</v-icon>
+                        </v-btn>
+                      </v-col>
+                    </v-row>
+
+                    <v-row>
+                      <!-- Color Filters -->
+                      <v-col cols="12" md="6">
+                        <h3 class="text-h6 mb-3">Colors</h3>
+                        <div class="color-filters">
+                          <ColorFilterChips
+                            :filteredCardData="filteredAndSortedCards"
+                            :activeColors="activeColors"
+                            :globalColorCounts="globalColorCounts"
+                            @update:activeColors="onColorFilterChange"
+                          />
                         </div>
-                        <!-- No Results -->
-                        <v-empty-state
-                            v-if="filteredAndSortedCards.length === 0"
-                            icon="mdi-magnify"
-                            title="No Cards Found"
-                            text="Try adjusting your search terms"
-                        ></v-empty-state>
-                    </div>
-                </v-card-text>
-            </v-card>
+                      </v-col>
+
+                      <!-- Checkbox Options -->
+                      <v-col cols="12" md="6">
+                        <v-row>
+                          <v-col class="pa-2">
+                            <v-checkbox v-model="shouldExcludeMultiColor" label="Exclude Multicolor" />
+                          </v-col>
+                          <v-col class="pa-2">
+                            <v-switch v-model="groupByName" label="Group by Card Name" color="primary" />
+                          </v-col>
+                        </v-row>
+                      </v-col>
+
+                      <!-- Rarity Filters -->
+                      <v-col cols="12" md="6">
+                        <h3 class="text-h6 mb-3">Rarity</h3>
+                        <div class="rarity-filters">
+                          <v-chip-group v-model="selectedRarities" multiple>
+                            <v-chip  
+                              v-for="rarity in rarities" 
+                              :key="rarity.value" 
+                              :value="rarity.value" 
+                              :color="rarity.color" 
+                              variant="outlined" 
+                              filter
+                            >
+                              <v-icon :icon="rarity.icon" start></v-icon>
+                              {{ rarity.label }}
+                            </v-chip>
+                          </v-chip-group>
+                        </div>
+                      </v-col>
+
+                      <!-- Magic Set Selection -->
+                      <v-col cols="12" md="6">
+                        <h3 class="text-h6 mb-3">Sets</h3>
+                        <v-combobox
+                          ref="selectedSetComboBox"
+                          v-model="selectedSets"
+                          v-model:search="setMTGSetsSearchText"
+                          :items="setData"
+                          label="Magic Sets"
+                          placeholder="Select sets to search in..."
+                          variant="outlined"
+                          density="comfortable"
+                          multiple
+                          chips
+                          clearable
+                          @keydown.enter.prevent="selectTopSet"
+                        />
+                      </v-col>                             
+                    </v-row>
+
+                    <v-row class="align-center justify-space-between mt-2 pa-3">
+                      <!-- Filter Action Button -->
+                      <div class="filter-actions">
+                        <v-btn 
+                          @click="searchAgainstSetData"
+                          color="primary"
+                          size="large"
+                          prepend-icon="mdi-magnify"
+                        >
+                          Search Cards
+                        </v-btn>
+                      </div>                                
+
+                      <!-- Filter Value Summary -->
+                      <div class="filter-summary text-right">
+                        <p class="text-body-2 text-medium-emphasis mb-0">
+                          Showing {{ filteredAndSortedCards.length }} cards
+                          (Displayed Value: ${{ filteredCardTotalValue.toFixed(2) }})
+                        </p>
+                        <p class="text-caption text-medium-emphasis mb-0">
+                          Collection Value: ${{ totalValueOfSelected.toFixed(2) }}
+                        </p>
+                      </div>
+                    </v-row>
+                  </v-card-text>
+                </v-card>
+
+                <!-- Initial Load Indicator -->
+                <div v-if="isLoading && cardsInCollection.length === 0" class="text-center py-8">
+                  <v-progress-circular indeterminate color="primary" size="48" />
+                  <p class="mt-2 text-medium-emphasis">Fetching cards...</p>
+                </div>
+
+                <!-- No Search Results Found -->
+                <v-empty-state
+                  v-else-if="!isLoading && filteredAndSortedCards.length === 0"
+                  icon="mdi-magnify-minus"
+                  title="No Cards Found"
+                  text="Try adjusting your filter settings or search terms."
+                  class="py-8"
+                />
+
+                <!-- Cards Display Area -->
+                <div v-else>
+                  <div 
+                    class="card-grid" :style="{ '--desktop-min-width': gridMinWidth }">
+                    <CardDisplay
+                      v-for="card in groupedCards"
+                      :key="card.id"
+                      :card="card"
+                      mode="collection"
+                      viewMode="grid"
+                      :imageSize="currentImageSize"
+                      :addToList="dynamicListName === '' ? 'false' : 'true'"
+                      :dynamicListName="dynamicListName"                      
+                    />
+                  </div>
+
+                  <!-- Infinite Scroll Anchor / Pagination Loading --> 
+                  <div ref="scrollAnchor" class="scroll-anchor py-4 text-center">
+                    <v-progress-circular v-if="isLoading" indeterminate color="primary" />
+                    <span v-else-if="!hasMore && cardsInCollection.length > 0" class="text-caption text-medium-emphasis">
+                      End of collection
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </v-card-text>
+          </v-card>
         </v-window-item>
     </v-window>
 </template>
 
 <style scoped>
-/* Header Styles */
-.collections-header-card {
-    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-    border-radius: 16px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.collections-tabs .tab-item {
-    text-transform: none;
-    font-weight: 500;
-    letter-spacing: 0.25px;
-}
-
-/* Form Card Styles */
-.collection-form-card,
-.import-form-card,
+/* Base View Wrapper */
 .collections-view-card {
     background: rgba(255, 255, 255, 0.85);
     backdrop-filter: blur(20px);
     border-radius: 16px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
-/* Form Header */
-.form-header {
-    text-align: center;
-    padding: 16px;
-    background: linear-gradient(90deg, rgba(33, 150, 243, 0.05), rgba(76, 175, 80, 0.05));
-    border-radius: 12px;
-    margin: -16px -16px 24px -16px;
-}
-
-/* Form Styles */
-.collection-form,
-.import-form {
-    max-width: 600px;
-    margin: 0 auto;
-}
-
-/* Button Styles */
-.create-btn,
-.import-btn {
-    border-radius: 12px;
-    font-weight: 600;
-    text-transform: none;
-    letter-spacing: 0.5px;
-    box-shadow: 0 4px 16px rgba(33, 150, 243, 0.3);
-    transition: all 0.3s ease;
-    min-width: 160px;
-}
-
-.create-btn:hover,
-.import-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(33, 150, 243, 0.4);
-}
-
-.create-btn:disabled,
-.import-btn:disabled {
-    opacity: 0.6;
-    transform: none;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-/* Form Actions */
-.form-actions {
-    display: flex;
-    justify-content: center;
-    gap: 16px;
-    margin-top: 24px;
-}
-
-/* Import Results */
-.import-results {
-    background: rgba(255, 255, 255, 0.9);
-    backdrop-filter: blur(10px);
-    border-radius: 12px;
-}
-
-.import-summary-text {
-    font-family: 'Roboto Mono', monospace;
-    font-size: 14px;
-    line-height: 1.4;
-    color: #2e7d32;
-    background: rgba(76, 175, 80, 0.1);
-    padding: 16px;
-    border-radius: 8px;
-    white-space: pre-wrap;
-    overflow-x: auto;
-}
-
-/* Collection Item Cards */
+/* Card Styling & Hover Effects */
 .collection-item-card {
-    transition: all 0.3s ease;
-    height: 100%;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    border-color: rgba(var(--v-border-color), 0.12);
+    background: #ffffff;
 }
 
 .collection-item-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    transform: translateY(-3px);
+    border-color: rgba(var(--v-theme-primary), 0.4);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08) !important;
 }
 
-/* Mobile Responsive */
-@media (max-width: 768px) {
-    .form-header {
-        margin: -8px -8px 16px -8px;
-        padding: 12px;
-    }
-    
-    .collection-form,
-    .import-form {
-        max-width: none;
-    }
-    
-    .form-actions {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    
-    .create-btn,
-    .import-btn {
-        width: 100%;
-    }
+/* Micro Typography & Utilities */
+.text-xxs {
+    font-size: 0.6875rem;
+    line-height: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.text-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-height: 2.2em;
+}
+
+.border-t {
+    border-top: 1px solid rgba(var(--v-border-color), 0.08);
+}
+
+/* Grid & Scroll Utilities */
+.scroll-anchor {
+    min-height: 50px;
+    width: 100%;
+}
+
+.card-item {
+    width: 100%;
+    max-width: none !important;
+    flex: none !important;
+    transition: all 0.2s ease-in-out;
 }
 
 .card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 1rem;
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    padding: 4px;
 }
 
-.card img {
-  width: 100%;
-  height: auto;
-}
-.card-item {
-  flex: 1 1 auto;
-  min-width: 200px;
-  max-width: 300px;
-}
-
-.scroll-anchor {
-  min-height: 50px;
-  width: 100%;
+@media (min-width: 600px) {
+    .card-grid {
+        grid-template-columns: repeat(auto-fill, minmax(var(--desktop-min-width, 200px), 1fr));
+        gap: 16px;
+        padding: 16px;
+    }
 }
 </style>

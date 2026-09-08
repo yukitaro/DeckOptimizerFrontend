@@ -1,4 +1,4 @@
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Colors from './Colors.vue';
@@ -9,6 +9,7 @@ import DeckComparison from './DeckComparison.vue';
 import { useDeckData } from '@/composables/useDeckData'
 import GroupedCardList from './GroupedCardList.vue';
 import { brokenImageTracker } from '@/utils/brokenImageTracker';
+import type { DeckImportDTO } from '@/utils/types';
 
 import {
   getNumericalManaCost,
@@ -16,7 +17,7 @@ import {
   mapColorCodeToName,
 } from '@/utils/deckUtils'
 import MultiDeckComparison from './MultiDeckComparison.vue';
-import { getKnownArchetypes, importDeckDataFromUrl, storeDeck } from '@/api/deckClient';
+import { getKnownArchetypes, importDeckDataFromUrl, storeDeck, storeDeckFromDTO } from '@/api/deckClient';
 import { useSiteWideRouter } from '@/composables/useSitewideRouter';
 
 const route = useRoute()
@@ -29,6 +30,8 @@ const props = defineProps({
 })
 const isReady = ref(false)
 const tab = ref('Deck Import')
+const deckDataFromDTO = ref<DeckImportDTO | null>(null)
+const { createDeckDTO } = useDeckData()
 const deckName = ref('')
 const deckDescription = ref('')
 const deckSomething = ref('')
@@ -70,6 +73,7 @@ const suggestionsLimit = 10;
 const showSuggestions = ref(false);
 
 const isScraping = ref(false);
+const isSuccessfullyScraped = ref(false);
 
 // Deck Management refs
 const selectedArchetypeFilter = ref('All')
@@ -251,21 +255,22 @@ async function importCardsForDeck() {
             dataLength: deckSomething.value.length
         });
 
-        const response = await storeDeck({
-            deckName: deckName.value,
-            deckDescription: deckDescription.value,
-            deckData: deckSomething.value,
-            deckLink: externalLink.value,
-            format: deckFormat.value,
-            deckArchetype: (selectedArchetypeName.value || archetypeQuery.value || null),
-            archetypeId: selectedArchetypeId.value,
-            deckVisibility: deckVisibility.value
-        }, { 
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            }
-        });
+        const headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        };
+
+        const response = !isSuccessfullyScraped.value
+            ? await storeDeck({
+                name: deckName.value,
+                description: deckDescription.value,
+                mainboard: deckSomething.value,
+                sourceUrl: externalLink.value,
+                format: deckFormat.value,
+                archetype: selectedArchetypeName.value || archetypeQuery.value || null,
+                tags: [],
+            }, { headers })
+            : await storeDeckFromDTO(deckDataFromDTO.value, { headers });
 
         console.log('Deck import response:', response.data);
 
@@ -366,8 +371,8 @@ function switchToDeckDisplay(deck) {
 
 // Helper to parse mainboard/sideboard into textarea format
 function buildDecklistText(mainboard = [], sideboard = []) {
-  const main = (mainboard || []).map(c => `${c.count} ${c.name}`).join('\n');
-  const side = (sideboard || []).map(c => `${c.count} ${c.name}`).join('\n');
+  const main = (mainboard || []).join('\n');
+  const side = (sideboard || []).join('\n');
   return main + (side ? `\n\nSideboard:\n${side}` : '');
 }
 
@@ -376,7 +381,11 @@ async function scrapeUrl() {
   console.log('Scraping URL:', externalLink.value);
   try {
     const response = await importDeckDataFromUrl(externalLink.value);
+    if (!response || !response.data) {
+      throw new Error('Invalid response from scraper');
+    }
     const deckData = response.data;
+    deckDataFromDTO.value = createDeckDTO(response.data);
     deckName.value = deckData.name;
     deckDescription.value = deckData.description;
     deckSomething.value = buildDecklistText(deckData.mainboard, deckData.sideboard);
@@ -410,6 +419,7 @@ async function scrapeUrl() {
       selectedArchetypeId.value = null;
       selectedArchetypeName.value = '';
     }
+    isSuccessfullyScraped.value = true;
     
   } finally {
     isScraping.value = false;

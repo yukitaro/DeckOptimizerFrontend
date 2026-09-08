@@ -1,6 +1,7 @@
 import { Deck, Card } from '@/utils/types'
 import { nextTick, ref, watch  } from 'vue'
 import { deleteDeckById, getAllDeckArchetypes, getCardsForDeckAPI, getStoredDecks, retrieveCardsForDeck, retrieveCardsForDeckByBoardGroup, retrieveSideboardForDeck } from '@/api/deckClient';
+import type { DeckImportDTO } from '@/utils/types'
 
 const cardsInSelectedDeck = ref<Card[][]>([])
 const cardsInSideboardOfSelectedDeck = ref<Card[][]>([])
@@ -73,6 +74,19 @@ export function useDeckData() {
     } finally {
       isLoadingDeckCards.value = false
     }
+  }
+
+  function createDeckDTO(rawDeckData: any): DeckImportDTO {
+    return ({
+        name: rawDeckData.name,
+        description: rawDeckData.description,
+        mainboard: rawDeckData.mainboard ?? [],
+        sideboard: rawDeckData.sideboard ?? [],
+        sourceUrl: rawDeckData.sourceUrl,
+        format: rawDeckData.format,
+        archetype: rawDeckData.archetype ?? null,
+        tags: rawDeckData.tags ?? []
+    })
   }
 
   async function reloadStoredDecks() {
@@ -214,6 +228,7 @@ export function useDeckData() {
     addDeckForComparison,
     cardsInSelectedDeck,
     cardsInSideboardOfSelectedDeck,
+    createDeckDTO,
     deleteDeck,
     dictOfCardImageUrls,
     getCardsForDeck,

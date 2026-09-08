@@ -1,8 +1,8 @@
 import { laravel_api as api } from './client'
 
 export async function getCSRF() {
-    //axios.get('/sanctum/csrf-cookie');
-  return await api.get(`/sanctum/csrf-cookie`);
+    const rootBase = api.defaults.baseURL?.replace(/\/api\/?$/, '')
+  return await api.get('/sanctum/csrf-cookie', { baseURL: rootBase })
 }
 
 export async function loginAPI(email: string, password: string) {

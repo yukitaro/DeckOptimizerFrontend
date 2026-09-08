@@ -62,6 +62,10 @@ export default defineConfig({
             // optional: if Laravel is mounted under a subpath, adjust with rewrite
             // rewrite: (path) => path.replace(/^\/api/, '/api'),
           },
+          '/sanctum': {
+            target: 'http://laravel.test:80', // Sail exposes Laravel on http://localhost by default
+            changeOrigin: true,
+          }
           // If you use Sanctum or other non-/api endpoints, add them too:
           // '/sanctum': { target: 'http://localhost', changeOrigin: true, secure: false },
         }    
