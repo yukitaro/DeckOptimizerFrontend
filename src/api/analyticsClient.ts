@@ -23,3 +23,15 @@ export async function getTopCards(collectionId: number) {
 export async function getColorIdentityBreakdown(collectionId: number) {
   return api.get(`/api/collections/${collectionId}/analytics/colors`)
 }
+
+export async function getTopPauperStaples(archetypes: string[], sets: string[] = [], exclusiveToSet: boolean = false, mtgCardTypesSelected: string[] = [], ownedThreshold: string = '') {
+  return api.get(`/api/analytics/top-pauper-staples`, {
+    params: {
+      archetypes: archetypes.join(','),
+      sets: sets.join(','),
+      exclusive_to_set: exclusiveToSet,
+      mtg_card_types: mtgCardTypesSelected.join(','),
+      owned_threshold: ownedThreshold
+    }
+  })
+}

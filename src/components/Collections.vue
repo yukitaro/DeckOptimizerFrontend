@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { useExportModal } from '@/composables/useExportModal'
+import ExportDialog from './modals/ExportDialog.vue'
+import CardEditModal from './modals/CardEditModal.vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { ProcessedSetData } from '@/composables/useMagicSetData'
 import { 
@@ -14,7 +17,7 @@ import {
 import { useSiteWideRouter } from '@/composables/useSitewideRouter'
 import { useSetData } from '@/composables/useMagicSetData'
 import ImageSizeSelector from '@/components/widgets/ImageSizeSelector.vue'
-import { Collection } from '@/utils/types'
+import { Card, Collection } from '@/utils/types'
 
 // Image sizing configuration
 type SizeKey = 'sm' | 'md' | 'lg';
@@ -45,7 +48,7 @@ const selectedCollection = ref<number | null>(null)
 
 // Layout & UI State
 const isViewingCollection = ref(false)
-const dedupe = ref(true)
+const dedupe = ref(false)
 const selectedMode = ref('merge')
 const importSummary = ref<string | null>(null)
 const isImporting = ref(false)
@@ -53,6 +56,7 @@ const toastMessage = ref('')
 const toastColor = ref('success')
 const showToast = ref(false)
 const previousQuery = ref<Record<string, any>>({})
+const collectionReturnToLocation = ref('')
 
 // Card Data & Pagination State
 const cardsInCollection = ref<any[]>([])
@@ -67,6 +71,7 @@ const sortKey = ref('price')
 const sortDirection = ref('desc')
 const activeColors = ref<string[]>([])
 const groupByName = ref(false)
+const filterByType = ref('')
 
 // Deletion State
 const deleteDialog = ref(false)
@@ -80,6 +85,10 @@ const dynamicListName = ref("")
 const selectedSets = ref<ProcessedSetData[]>([])
 const { setData, loadSetData, isLoading: isSetDataLoading } = useSetData()
 const selectedSetComboBox = ref<any>(null)
+
+// Card edit modal state
+const showEditModal = ref(false)
+const selectedCardForEdit = ref<Card | null>(null)
 
 const selectedRarities = ref(['common', 'uncommon', 'rare', 'mythic'])
 const rarities = [
@@ -118,6 +127,13 @@ const queryParams = computed(() => {
     .filter(Boolean)
     .join(',')
 
+  let typeString = ''
+  if (Array.isArray(filterByType.value)) {
+    typeString = filterByType.value.join(',')
+  } else if (typeof filterByType.value === 'string') {
+    typeString = filterByType.value.trim()
+  }
+
   return {
     sort: {
       key: sortKey.value,
@@ -129,6 +145,7 @@ const queryParams = computed(() => {
       rarities: selectedRarities.value,
       excludeMultiColor: shouldExcludeMultiColor.value,
       search: searchTerm.value,
+      type: typeString,
     },
     page: currentPage.value
   }
@@ -136,11 +153,7 @@ const queryParams = computed(() => {
 
 // Centralized Router State Updater
 function applyFiltersToUrl(pageOverride?: number) {
-  console.log('[DEBUG applyFiltersToUrl] Called. isSyncingFromRoute:', isSyncingFromRoute.value, 'selectedCollection:', selectedCollection.value)
-  if (isSyncingFromRoute.value || !selectedCollection.value) {
-    console.log('[DEBUG applyFiltersToUrl] ABORTED due to guard flag or missing selectedCollection.')
-    return
-  }
+  if (isSyncingFromRoute.value || !selectedCollection.value) return
 
   const targetPage = pageOverride ?? currentPage.value
 
@@ -152,6 +165,13 @@ function applyFiltersToUrl(pageOverride?: number) {
     .filter(Boolean)
     .join(',')
 
+  let typeString = ''
+  if (Array.isArray(filterByType.value)) {
+    typeString = filterByType.value.join(',')
+  } else if (typeof filterByType.value === 'string') {
+    typeString = filterByType.value.trim()
+  }
+
   const query: Record<string, any> = {
     page: targetPage > 1 ? targetPage : undefined,
     'sort[key]': sortKey.value,
@@ -161,12 +181,10 @@ function applyFiltersToUrl(pageOverride?: number) {
     'filters[colors]': activeColors.value.length ? activeColors.value.join(',') : undefined,
     'filters[rarities]': selectedRarities.value.length ? selectedRarities.value.join(',') : undefined,
     'filters[excludeMultiColor]': shouldExcludeMultiColor.value ? 'true' : undefined,
+    'filters[type]': typeString || undefined,
   }
 
   Object.keys(query).forEach(key => query[key] === undefined && delete query[key])
-
-  console.warn('[DEBUG applyFiltersToUrl] Executing router.push to:', `/collections/${selectedCollection.value}`, query)
-  console.trace() // Shows who called applyFiltersToUrl
 
   router.replace({
     path: `/collections/${selectedCollection.value}`,
@@ -203,85 +221,87 @@ function searchAgainstSetData() {
 }
 
 watch(tab, (newTab, oldTab) => {
-  console.log(`[DEBUG Tab Watcher] Changed from "${oldTab}" -> "${newTab}". route.params.id:`, route.params.id)
   if (newTab === 'View Collections') {
     setupIntersectionObserver()
   } else if (oldTab === 'View Collections' && route.params.id) {
-    console.warn('[DEBUG Tab Watcher] Switched away from View Collections. Triggering router.push(/collections)')
-    console.trace() // Shows who/what changed tab
     isViewingCollection.value = false
     selectedCollection.value = null
-    router.push({ path: '/collections' })
+    if (route.params.id) {
+      router.push({ path: '/collections' })      
+    }
   }
 })
 
-// Single Master Watcher: Syncs URL to UI & Fetches Data
+// 1. COLLECTION ROUTE WATCHER: Fires ONLY when entering or changing collections
 watch(
-  () => [route.params.id, route.query],
-  async (val) => {
-    // Suppress destructuring error if watcher payload is empty/undefined
-    if (!val || !Array.isArray(val)) return
+  () => route.params.id,
+  async (newId, oldId) => {
+    if (newId === oldId) return
 
-    const [newId, newQuery] = val
-    
-    // FIX: Grab the snapshot saved BEFORE this router push occurred
-    const oldQuery = previousQuery.value
-
-    console.log('[DEBUG Master Watcher] Fired!', { newId, newQuery, oldQuery })
-
-    const rawId = route.params.id ? String(route.params.id) : null
-    const collectionId = rawId ? parseInt(rawId, 10) : null
+    const collectionId = newId ? parseInt(String(newId), 10) : null
 
     if (!collectionId || isNaN(collectionId)) {
-      console.warn('[DEBUG Master Watcher] No valid collectionId!')
       isViewingCollection.value = false
       selectedCollection.value = null
+      totalValueOfSelected.value = 0
+      cardsInCollection.value = []
       return
     }
 
-    isSyncingFromRoute.value = true
     selectedCollection.value = collectionId
     isViewingCollection.value = true
     tab.value = 'View Collections'
-
-    syncUiFromQuery((newQuery as Record<string, any>) || route.query)
+    totalValueOfSelected.value = 0
+    cardsInCollection.value = []
+    collectionReturnToLocation.value = route.fullPath || ''
 
     if (!setData.value.length) {
-      loadSetData().then(() => {
-        const q = (newQuery as Record<string, any>) || route.query
-        const urlSets = q['filters[sets]'] ? (q['filters[sets]'] as string).split(',') : []
-        if (urlSets.length && setData.value.length) {
-          selectedSets.value = setData.value.filter(item => urlSets.includes(item.value))
-        }
-      }).catch(() => {})
+      loadSetData().catch(() => {})
     }
 
-    // Correctly check if ONLY the page number incremented
-    const isPagePush =
-      oldQuery &&
-      newQuery &&
-      newQuery.page &&
-      Number(newQuery.page) > 1 &&
-      String(newQuery.page) !== String(oldQuery.page) &&
-      (newQuery['filters[search]'] || '') === (oldQuery['filters[search]'] || '')
-
-    // IMPORTANT: Take a snapshot copy of newQuery for the NEXT watcher tick
-    previousQuery.value = { ...newQuery }
-
-    if (isPagePush) {
-      await loadMoreCards()
-    } else {
-      await refreshFilteredCards()
-    }
-
-    await nextTick()
+    isSyncingFromRoute.value = true
+    syncUiFromQuery(route.query)
+    await refreshFilteredCards()
     isSyncingFromRoute.value = false
   },
   { immediate: true }
 )
 
+// 2. QUERY / FILTER WATCHER: Fires ONLY when query parameters change externally or via controls
+watch(
+  () => route.query,
+  async (newQuery, oldQuery) => {
+    if (!selectedCollection.value || isSyncingFromRoute.value) return
+
+    // If the query change was just page parameter from a back/forward navigation
+    const newPage = Number(newQuery.page) || 1
+    const oldPage = Number(oldQuery?.page) || 1
+
+    if (newPage !== oldPage && isSameFilterState(newQuery, oldQuery)) {
+      // If we already have the cards loaded up to this page, don't wipe them
+      if (newPage <= currentPage.value) return
+      
+      isSyncingFromRoute.value = true
+      syncUiFromQuery(newQuery)
+      await loadMoreCards(newPage)
+      isSyncingFromRoute.value = false
+      return
+    }
+
+    // Filter or sort change: Full reset
+    isSyncingFromRoute.value = true
+    syncUiFromQuery(newQuery)
+    await refreshFilteredCards()
+    isSyncingFromRoute.value = false
+  }
+)
+
+function isSameFilterState(q1: Record<string, any>, q2: Record<string, any> = {}) {
+  const keys = ['sort[key]', 'sort[direction]', 'filters[search]', 'filters[sets]', 'filters[colors]', 'filters[rarities]', 'filters[excludeMultiColor]', 'filters[type]']
+  return keys.every(key => (q1[key] || '') === (q2[key] || ''))
+}
+
 function syncUiFromQuery(q: Record<string, any>) {
-  console.log('[DEBUG syncUiFromQuery] Hydrating controls with query:', q)
   currentPage.value = Number(q.page) || 1
   sortKey.value = (q['sort[key]'] as string) || 'price'
   sortDirection.value = (q['sort[direction]'] as string) || 'desc'
@@ -300,6 +320,15 @@ function syncUiFromQuery(q: Record<string, any>) {
     selectedRarities.value = ['common', 'uncommon', 'rare', 'mythic']
   }
 
+  const typeParam = q['filters[type]']
+  if (Array.isArray(typeParam)) {
+    filterByType.value = typeParam.join(',')
+  } else if (typeof typeParam === 'string') {
+    filterByType.value = typeParam
+  } else {
+    filterByType.value = ''
+  }
+  
   const urlSets = q['filters[sets]'] ? (q['filters[sets]'] as string).split(',') : []
   if (urlSets.length) {
     if (setData.value.length) {
@@ -316,10 +345,19 @@ async function refreshFilteredCards() {
   if (!selectedCollection.value) return
 
   isLoading.value = true
+  currentPage.value = 1
+
   try {
-    const response = await viewCardsInCollection(selectedCollection.value, queryParams.value)
+    const response = await viewCardsInCollection(selectedCollection.value, {
+      ...queryParams.value,
+      page: 1
+    })
+    
     cardsInCollection.value = response.data.data || []
-    totalValueOfSelected.value = response.data.aggregations?.filtered?.market_value || 0
+    
+    if (response.data.aggregations?.global?.market_value !== undefined) {
+      totalValueOfSelected.value = response.data.aggregations.global.market_value
+    }
     
     const meta = response.data.meta
     hasMore.value = meta ? meta.current_page < meta.last_page : false
@@ -333,31 +371,32 @@ async function refreshFilteredCards() {
   }
 }
 
-const loadMoreCards = async () => {
+const loadMoreCards = async (targetPage?: number) => {
+  const nextPage = targetPage ?? (currentPage.value + 1)
   if (!hasMore.value || isLoading.value || !selectedCollection.value) return
 
   isLoading.value = true
   try {
-    const targetPage = Number(route.query.page) || (currentPage.value + 1)
-
     const params = {
       ...queryParams.value,
-      page: targetPage,
+      page: nextPage,
+      currency: 'usd'
     }
 
     const response = await viewCardsInCollection(selectedCollection.value, params)
     const newCards = response.data.data || []
 
-    // Deduplicate and append new cards onto existing list
     const cardMap = new Map(cardsInCollection.value.map(card => [card.id, card]))
     newCards.forEach((card: any) => cardMap.set(card.id, card))
     cardsInCollection.value = Array.from(cardMap.values())
 
-    // Sync active page state
-    currentPage.value = targetPage
+    currentPage.value = nextPage
 
     const meta = response.data.meta
     hasMore.value = meta ? meta.current_page < meta.last_page : false
+
+    // DO NOT call applyFiltersToUrl(nextPage) here!
+    // Pushing/replacing route state here triggers watch(() => route.query) and resets the array.
   } catch (error) {
     console.error('Error loading cards:', error)
   } finally {
@@ -375,23 +414,15 @@ const fetchCollections = async () => {
 }
 
 async function patchCollection(collection: Collection, changes) {
-  // 1. Store previous state for optimistic rollback if needed
   const originalState = { ...collection }
-
-  // 2. Optimistically apply change to UI immediately (snappy UX)
   Object.assign(collection, changes)
 
   try {
-    // 3. Send ONLY the changed key(s) to Laravel
     const updatedCollection = await updateCollectionData(collection.id, changes)
-    
-    // 4. Sync backend response back to local object
     Object.assign(collection, updatedCollection)
   } catch (error) {
-    // Revert UI on error
     Object.assign(collection, originalState)
     console.error('Failed to update collection:', error)
-    // Optional: show snackbar notification here
   }
 }
 
@@ -414,9 +445,7 @@ function computeGlobalColorCounts(cards: any[]) {
 
 const calculateFilteredCardTotalValue = (): number => {
   return cardsInCollection.value.reduce((total, card) => {
-    const price = card.is_foil
-      ? card.card_from_set?.card_metadata?.prices?.usd_foil
-      : card.card_from_set?.card_metadata?.prices?.usd
+    const price = card.card_from_set.card_metadata?.variant_prices[0].price
     return total + (price ? Number(price) * card.card_count : 0)
   }, 0)
 }
@@ -426,6 +455,8 @@ const filteredCardTotalValue = computed(() => calculateFilteredCardTotalValue())
 const filteredAndSortedCards = computed(() => {
   return cardsInCollection.value ? [...cardsInCollection.value] : []
 })
+
+const exportModal = useExportModal(filteredAndSortedCards.value)
 
 const groupedCards = computed(() => {
   const cards = filteredAndSortedCards.value || []
@@ -469,7 +500,6 @@ const submitImport = async () => {
   formData.append('mode', selectedMode.value)
   const isDedupe = Boolean(dedupe.value)
   formData.append('dedupe', isDedupe ? '1' : '0')
-  console.log('Submitting import with dedupe:', isDedupe)
 
   await importCollectionFromExternalSource(formData)
   pollImportStatus(selectedCollection.value)
@@ -528,7 +558,36 @@ async function deleteCollection() {
   }
 }
 
-// Fixed onMounted: Load collections immediately without waiting on set metadata
+// 1. Called when user clicks the pencil icon on CardDisplay
+function handleOpenEditModal(card: Card) {
+  console.log('Opening edit modal for card:', card)
+  selectedCardForEdit.value = card
+  showEditModal.value = true
+}
+
+// 2. Called when CardEditModal successfully saves attribute updates
+function handleCardUpdated(updatedCard: Card) {
+  const index = cardsInCollection.value.findIndex(c => c.id === updatedCard.id)
+  if (index !== -1) {
+    // Update local reactive grid state immediately without full page reload
+    cardsInCollection.value[index] = { ...cardsInCollection.value[index], ...updatedCard }
+  }
+}
+
+// 3. Called when CardEditModal executes a transfer/move to another collection
+function handleCardMoved(payload: { card_id: number; moved_qty: number; remaining_qty: number }) {
+  const index = cardsInCollection.value.findIndex(c => c.id === payload.card_id)
+  if (index !== -1) {
+    if (payload.remaining_qty <= 0) {
+      // Entire stack was moved, remove card from current grid view
+      cardsInCollection.value.splice(index, 1)
+    } else {
+      // Partial move, update current stack quantity
+      cardsInCollection.value[index].card_count = payload.remaining_qty
+    }
+  }
+}
+
 onMounted(() => {
   fetchCollections()
   if (!setData.value.length) {
@@ -553,12 +612,12 @@ function setupIntersectionObserver() {
           isViewingCollection.value &&
           cardsInCollection.value.length > 0
         ) {
-          applyFiltersToUrl(currentPage.value + 1)
+          loadMoreCards()
         }
       },
       { 
         root: null,
-        rootMargin: '200px',
+        rootMargin: '300px',
         threshold: 0.1 
       }
     )
@@ -685,33 +744,26 @@ const gridMinWidth = computed(() => desktopGridMinWidths[currentImageSize.value 
                         {{ toastMessage }}
                         </v-snackbar>                         
                         <v-select
-                        v-model="selectedCollection"
-                        :items="listOfCollections"
-                        item-title="collection_name"
-                        item-value="id"
-                        label="Choose Collection"
-                        placeholder="Select a collection..."
-                        variant="outlined"
-                        density="comfortable"
-                        prepend-inner-icon="mdi-folder-open"
-                        class="mb-4"
-                        :rules="[v => !!v || 'Please select a collection']"
-                        >
-                        <!-- dropdown rows -->
-                        <template v-slot:item="{ props, item }">
-                            <v-list-item v-bind="props">
-                            <v-list-item-title>{{ item.collection_name }}</v-list-item-title>
-                            <v-list-item-subtitle v-if="item.description">
-                                {{ item.description }}
-                            </v-list-item-subtitle>
-                            </v-list-item>
-                        </template>
-
-                        <!-- selected label -->
-                        <template v-slot:selection="{ item }">
-                            <span v-if="item">{{ item.collection_name }}</span>
-                        </template>
-                        </v-select>
+  v-model="selectedCollection"
+  :items="listOfCollections"
+  item-title="collection_name"
+  item-value="id"
+  label="Choose Collection"
+  placeholder="Select a collection..."
+  variant="outlined"
+  density="comfortable"
+  prepend-inner-icon="mdi-folder-open"
+  class="mb-4"
+  :rules="[v => !!v || 'Please select a collection']"
+>
+  <template v-slot:item="{ props, item }">
+    <v-list-item 
+      v-bind="props" 
+      :title="item.raw.collection_name" 
+      :subtitle="item.raw.description"
+    />
+  </template>
+</v-select>
 
                         <!-- Import Mode Selection -->
                         <v-select
@@ -924,31 +976,57 @@ const gridMinWidth = computed(() => desktopGridMinWidths[currentImageSize.value 
 
               <!-- LEVEL 2: Cards Section (Shows when isViewingCollection === true) -->
               <div v-else class="cards-section">
+                <v-row>
                 <!-- Back Button -->
-                <v-btn 
-                  @click="backToCollections()"
-                  variant="outlined"
-                  prepend-icon="mdi-arrow-left"
-                  class="mb-4"
-                >
-                  Back to Collections
-                </v-btn>
+                  <v-btn 
+                    @click="backToCollections()"
+                    variant="outlined"
+                    prepend-icon="mdi-arrow-left"
+                    class="mb-4"
+                  >
+                    Back to Collections
+                  </v-btn>
+                  <v-spacer />
+                  <!-- Trigger button -->
+                  <v-btn
+                    color="primary"
+                    prepend-icon="mdi-export"
+                    :disabled="!filteredAndSortedCards?.length"
+                    @click="exportModal.open()"
+                  >
+                    Export
+                  </v-btn>                
+                </v-row>
                 <ImageSizeSelector v-model="currentImageSize" class="d-none d-sm-flex" />
                 <!-- Search and Sort Controls Card (ALWAYS VISIBLE WHEN VIEWING A COLLECTION) -->
                 <v-card class="mb-4" variant="outlined">
                   <v-card-text class="pa-4">
                     <v-row>
                       <!-- Search Term Field -->
-                      <v-col cols="12" md="8">
+                      <v-col cols="12" md="6">
                         <v-text-field
                           v-model="searchTerm"
                           label="Search cards..."
                           variant="outlined"
                           density="comfortable"
                           prepend-inner-icon="mdi-magnify"
+                          @keydown.enter="searchAgainstSetData()"
                           clearable
                         ></v-text-field>
                       </v-col>
+
+                      <v-col cols="10" md="3">
+                        <v-text-field
+                          v-model="filterByType"
+                          label="Filter by type..."
+                          variant="outlined"
+                          density="comfortable"
+                          prepend-inner-icon="mdi-magnify"
+                          @keydown.enter="searchAgainstSetData()"
+                          clearable
+                        ></v-text-field>
+                      </v-col>
+
 
                       <!-- Sort By Dropdown -->
                       <v-col cols="10" md="3">
@@ -1099,7 +1177,9 @@ const gridMinWidth = computed(() => desktopGridMinWidths[currentImageSize.value 
                       viewMode="grid"
                       :imageSize="currentImageSize"
                       :addToList="dynamicListName === '' ? 'false' : 'true'"
-                      :dynamicListName="dynamicListName"                      
+                      :dynamicListName="dynamicListName"
+                      :returnToLocation="collectionReturnToLocation || route.fullPath"
+                      @edit="handleOpenEditModal(card)"
                     />
                   </div>
 
@@ -1116,6 +1196,22 @@ const gridMinWidth = computed(() => desktopGridMinWidths[currentImageSize.value 
           </v-card>
         </v-window-item>
     </v-window>
+    <ExportDialog
+          v-model="exportModal.isOpen.value"
+          v-model:format="exportModal.selectedFormat.value"
+          :formats="exportModal.formats"
+          :loading="exportModal.isExporting"
+          @export="exportModal.callExportCollection(selectedCollection)"
+        />
+    <CardEditModal
+      v-model="showEditModal"
+      :card="selectedCardForEdit"
+      :current-collection-id="selectedCollection ?? 0"
+      :collections-list="listOfCollections"
+      :user-views="allViews"
+      @card-updated="handleCardUpdated"
+      @card-moved="handleCardMoved"
+    />        
 </template>
 
 <style scoped>

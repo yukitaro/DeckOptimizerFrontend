@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { CardDisplay, Colors } from '@/interfaces';
 import { getColorManaCost, getNumericalManaCost, mapColorCodeToName} from '../utils/deckUtils'
 import { useCsvExport, CsvColumn } from '../composables/useCsvExport';
@@ -47,8 +47,13 @@ const itemsPerPageOptions = [
 const processedCardData = ref<any[]>([])
 const tableLoadKey = ref(0)
 const searchText = ref("")
+const searchOracleText = ref("")
 const itemsPerPage = ref(10)
 const dynamicListName = ref("")
+const currentPage = ref(1)
+const totalCards = ref(0)
+const lastPage = ref(1)
+const isLoading = ref(false);
 
 const viewMode = ref<'table' | 'grid'>('table')   // default to table
 const imageSize = ref<'sm' | 'md' | 'lg'>('md')   // default to medium
@@ -85,6 +90,8 @@ const allHeaders = ref([
     { title: 'Price', key: 'price_usd', value: 'price_usd', width: '100px' },
 ])
 
+const showOwnedOnly = ref(false)
+
 const serverSortKey = ref<'name' | 'price' | 'release_date' | 'set' | 'count'>('name')
 const serverSortDirection = ref<'asc' | 'desc'>('asc')
 
@@ -102,18 +109,56 @@ const searchParams = computed<CardSearchParams>(() => {
 
   return {
     name: searchText.value,
+    oracle_text: searchOracleText.value,
     sets: selectedSets.value.map(set => set.value).join(','),
     rarities: selectedRarity.value.join(','),
     colors: colorFilterParam.value,
     limit: limitToRetrieve.value,
+    owned_only: showOwnedOnly.value,
+    page: currentPage.value,
     date_start: range.start,
     date_end: range.end,
-    sort: {
-      key: serverSortKey.value,
-      direction: serverSortDirection.value
-    }
+    // Flatten these so Laravel receives ?sort_by=price&sort_dir=desc
+    sort_by: serverSortKey.value,
+    sort_dir: serverSortDirection.value,
   }
 })
+
+async function fetchPage(page = 1) {
+  if (selectedRarity.value.length === 0) {
+    selectedRarity.value = ['common', 'uncommon', 'rare', 'mythic']
+  }
+
+  isLoading.value = true
+  currentPage.value = page
+
+  try {
+    const response = await callConsolidatedCardsSearch(searchParams.value)
+    
+    // Process records
+    processRawCardData(response.data.data)
+
+    // Store backend pagination metadata
+    if (response.data.meta) {
+      totalCards.value = response.data.meta.total
+      lastPage.value = response.data.meta.last_page
+    }
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function applyServerSort(key: 'name' | 'price' | 'release_date' | 'set') {
+  clientSortKey.value = null
+  if (serverSortKey.value === key) {
+    serverSortDirection.value = serverSortDirection.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    serverSortKey.value = key
+    serverSortDirection.value = (key === 'price' || key === 'release_date') ? 'desc' : 'asc'
+  }
+  // Always reset to page 1 when changing filters or sorting
+  fetchPage(1)
+}
 
 const exportDialog = ref(false)
 const selectedExportFormat = ref<'default' | 'manabox'>('default')
@@ -188,7 +233,7 @@ function selectTopSet() {
   }
 
   // 2. If search text is empty (second Enter press), execute the search
-  searchAgainstSetData()
+  fetchPage(1)
 }
 
 const setNameMap = computed<Record<string, string>>(() => 
@@ -235,6 +280,7 @@ function processRawCardData(data: CardBackendData[]) {
             card_text: card.oracle_text ?? card.text ?? '',
 
             colors,
+            copies_owned: card.copies_owned ?? 0,
             price_usd: card.prices?.usd ? Number(card.prices.usd) : null,
             price_usd_foil: card.prices?.usd_foil ? Number(card.prices.usd_foil) : null,
             release_date: card.release_date,
@@ -362,6 +408,13 @@ async function searchAgainstSetData() {
     }
 
     const cardDataResponse = await callConsolidatedCardsSearch(searchParams.value);
+    
+    // Store metadata for pagination UI controls
+    if (cardDataResponse.data.meta) {
+        totalItems.value = cardDataResponse.data.meta.total;
+        lastPage.value = cardDataResponse.data.meta.last_page;
+    }
+
     processRawCardData(cardDataResponse.data.data);
 }
 
@@ -371,7 +424,20 @@ function handleRowClick(_evt: MouseEvent, row: { item: { card_from_set?: CardBac
   routeToCardMetadata({ card_from_set: backendData } as Card)
 }
 
-const clientSortKey = ref<'name' | 'price_usd' | 'release_date'>('name')
+function handleSortKeyChange(key: 'name' | 'price' | 'release_date' | 'set') {
+  serverSortKey.value = key
+  // Set default direction based on type
+  serverSortDirection.value = (key === 'price' || key === 'release_date') ? 'desc' : 'asc'
+  fetchPage(1)
+}
+
+// 2. Called ONLY when clicking the direction toggle button
+function toggleSortDirection() {
+  serverSortDirection.value = serverSortDirection.value === 'asc' ? 'desc' : 'asc'
+  fetchPage(1)
+}
+
+const clientSortKey = ref<'name' | 'price_usd' | 'release_date' | null>(null)
 const clientSortDir = ref<'asc' | 'desc'>('asc')
 
 function toggleClientSort(key: 'name' | 'price_usd' | 'release_date') {
@@ -386,6 +452,10 @@ function toggleClientSort(key: 'name' | 'price_usd' | 'release_date') {
 
 // Wrap filteredCardData in a client-sorted computed block
 const sortedFilteredCardData = computed(() => {
+  if (!clientSortKey.value) {
+    return filteredCardData.value;
+  }
+
   const list = [...filteredCardData.value]
   const key = clientSortKey.value
   const isAsc = clientSortDir.value === 'asc'
@@ -416,6 +486,10 @@ const sortedFilteredCardData = computed(() => {
     return isAsc ? diff : -diff
   })
 })
+
+watch(showOwnedOnly, () => {
+  fetchPage(1)
+})
  </script>
 
 <template>
@@ -426,10 +500,17 @@ const sortedFilteredCardData = computed(() => {
         <div class="search-header-content">
           <h2 class="text-h4 font-weight-bold text-primary mb-4">Magic Card Search</h2>
           
+          <v-row>
           <!-- Main Search Bar -->
-          <v-text-field v-model="searchText" label="Search for cards..." placeholder="Lightning Bolt, Counterspell, etc." variant="outlined" density="comfortable"
-            class="search-input mb-4" prepend-inner-icon="mdi-magnify" @keyup.enter="searchAgainstSetData" clearable />
-
+           <v-col cols="12" md="5">
+            <v-text-field v-model="searchText" label="Search for cards..." placeholder="Lightning Bolt, Counterspell, etc." variant="outlined" density="comfortable"
+              class="search-input mb-4" prepend-inner-icon="mdi-magnify" @keyup.enter="fetchPage(1)" clearable />
+           </v-col>
+           <v-col cols="12" md="5">
+            <v-text-field v-model="searchOracleText" label="Search oracle text..." placeholder="Whenever, Draw X cards, etc." variant="outlined" density="comfortable"
+              class="search-input mb-4" prepend-inner-icon="mdi-magnify" @keyup.enter="fetchPage(1)" clearable />
+           </v-col>
+          </v-row>
           <!-- Filter Controls -->
           <v-expansion-panels class="mb-4" variant="accordion">
             <v-expansion-panel>
@@ -462,7 +543,7 @@ const sortedFilteredCardData = computed(() => {
                           <v-icon :icon="rarity.icon" start></v-icon>
                           {{ rarity.label }}
                         </v-chip>
-                      </v-chip-group>
+                      </v-chip-group> 
                     </div>
                   </v-col>
                 </v-row>
@@ -504,11 +585,12 @@ const sortedFilteredCardData = computed(() => {
                 <!-- Action Buttons -->
                 <div class="filter-actions mt-4">
                   <v-btn 
-                    @click="searchAgainstSetData"
+                    @click="fetchPage(1)"
                     color="primary"
                     size="large"
                     prepend-icon="mdi-magnify"
-                    class="mr-3">
+                    class="mr-3"
+                    :loading="isLoading">
                     Search Cards
                   </v-btn>
                   
@@ -552,7 +634,15 @@ const sortedFilteredCardData = computed(() => {
     <v-spacer />
     <v-text-field v-model="dynamicListName" label="Dynamic List Name" variant="outlined" density="compact" class="ml-4" clearable />
     <v-spacer />
-
+    <div>
+        <v-checkbox
+          label="Show Owned Only"
+          v-model="showOwnedOnly"
+          density="compact"
+          hide-details
+        />
+    </div>
+    <v-spacer />
     <!-- 1. SERVER QUERY SORT (Re-runs search on change) -->
     <div class="d-flex align-center mr-4" style="max-width: 260px;">
       <v-select
@@ -563,20 +653,19 @@ const sortedFilteredCardData = computed(() => {
         variant="outlined"
         hide-details
         class="mr-1"
-        @update:model-value="searchAgainstSetData"
+        @update:model-value="handleSortKeyChange"
       />
       <v-btn
         icon
         size="small"
         variant="text"
-        @click="serverSortDirection = serverSortDirection === 'asc' ? 'desc' : 'asc'; searchAgainstSetData()"
+        @click="toggleSortDirection"
       >
         <v-icon>
           {{ serverSortDirection === 'asc' ? 'mdi-sort-ascending' : 'mdi-sort-descending' }}
         </v-icon>
       </v-btn>
     </div>
-
     <v-divider vertical class="my-2 mr-4" />
 
     <!-- 2. CLIENT DISPLAY SORT (Flips loaded results instantly without network requests) -->
@@ -716,6 +805,20 @@ const sortedFilteredCardData = computed(() => {
       </div>
     </v-card>
   </div>
+  <div class="d-flex align-center justify-space-between my-4 px-2">
+        <span class="text-subtitle-2 text-medium-emphasis">
+          Showing {{ processedCardData.length }} of {{ totalCards }} cards
+        </span>
+
+        <v-pagination
+          v-model="currentPage"
+          :length="lastPage"
+          :disabled="isLoading"
+          total-visible="7"
+          density="compact"
+          @update:model-value="(page) => fetchPage(page)"
+        />
+      </div>  
 <!-- Export Format Modal -->
 <v-dialog v-model="exportDialog" max-width="500px">
   <v-card>
@@ -910,6 +1013,7 @@ const sortedFilteredCardData = computed(() => {
 .cursor-pointer {
   cursor: pointer;
 }
+
 .card-grid {
   display: grid;
   width: 100%;

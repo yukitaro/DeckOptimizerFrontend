@@ -4,6 +4,7 @@ import { registerPlugins } from '@/plugins'
 import { useAuth } from '@/composables/useAuth'
 import { useEnumsStore } from '@/stores/enums'
 import { laravel_api } from '@/api/client'
+import '@/assets/main.css'
 
 import App from './App.vue'
 import Popper from "vue3-popper"

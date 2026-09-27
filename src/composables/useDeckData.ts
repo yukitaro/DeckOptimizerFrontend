@@ -120,9 +120,9 @@ export function useDeckData() {
     }
   }
 
-  async function getDecksFromDB() {
+  async function getDecksFromDB(limit: number, minimumNumberOfWins: number) {
     try {
-      const response = await getStoredDecks({ limit: 100 })
+      const response = await getStoredDecks({ limit: limit, minimumNumberOfWins: minimumNumberOfWins })
       if (response.data?.errors && response.data.errors.length > 0) {
         // handle errors as needed
       } else if (Array.isArray(response.data)) {
@@ -130,7 +130,10 @@ export function useDeckData() {
           deck_id: deckData.id,
           deck_name: deckData.deck_name,
           description: deckData.description,
-          archetype: deckData.archetype ?? 'Unknown'
+          archetype: deckData.archetype ?? 'Unknown',
+          format: deckData.format ?? 'Unknown',
+          sourceUrl: deckData.external_link ?? null,
+          matchRecord: deckData.standings[0].match_record ?? null
         })))
       }
     } catch (error) {
@@ -212,7 +215,9 @@ export function useDeckData() {
           deck_id: deckData.id,
           deck_name: deckData.deck_name,
           description: deckData.description,
-          archetype: deckData.archetype ?? 'Unknown'
+          archetype: deckData.archetype ?? 'Unknown',
+          format: deckData.format ?? 'Unknown',
+          match_record: deckData.match_record ?? '0-0',
         }))
       } else {
         recentlyImportedDecks.value = response.data ?? []

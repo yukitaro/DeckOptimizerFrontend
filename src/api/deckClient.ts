@@ -37,6 +37,12 @@ export async function importDeckDataFromUrl(url: string) {
   return response
 }
 
+export async function importDeckDataFromUrlForRound(url: string) {
+  const response = await api.post('/api/deck/import-deck-from-url-for-round', { url }, { timeout: 60000 })
+  return response
+}
+
+
 export async function retrieveCardsForDeck(deck_id: any) {
     const response = await api.post(`/api/cardsInDeck/${deck_id}`)
     return response.data || []

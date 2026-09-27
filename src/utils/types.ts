@@ -47,6 +47,24 @@ export interface CardBackendData {
   type: string
 }
 
+export interface NormalizedForPauper {
+  id: number
+  name: string
+  slug: string
+  normalized_name: string
+  canonical_printing: string
+  canonical_printing_id: string
+  image_url_to_use: string
+  type: string
+  scryfall_id: string
+  total_count: number
+  number_of_decks: number
+  average_num_in_decks: number
+  deck_inclusion_rate: number
+  total_owned: number
+  needed_for_playset: number
+}
+
 export interface Collection {
   id: number
   collection_name: string
@@ -88,9 +106,10 @@ export interface MtgCard {
 /** A deck selected for comparison */
 export interface Deck {
   archetype: string
+  cards: Card[]
   deck_id: number
   deck_name: string
-  cards: Card[]
+  format: string
   sideboard_cards?: Card[]
   locked?: boolean
 }

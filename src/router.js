@@ -8,11 +8,13 @@ import { useAuth } from '@/composables/useAuth'
 import CardListingVuetify from './components/CardListingVuetify.vue'
 import Decks from './components/Decks.vue'
 import Collections from './components/Collections.vue'
+import Inventory from './components/Inventory.vue'
 import Settings from './components/Settings.vue'
 import AdminConsole from './components/AdminConsole.vue'
 import DataCoverageDashboard from './components/DataCoverageDashboard.vue'
 import ImageCoverageDashboard from './components/ImageCoverageDashboard.vue'
 import ImportCandidatesDashboard from './components/ImportCandidatesDashboard.vue'
+import PauperStaplesDashboard from './components/PauperStaplesDashboard.vue'
 import MtgSetDataDashboard from './components/MtgSetDataDashboard.vue'
 import CardMetadataDashboard from './components/CardMetadataDashboard.vue'
 import Login from './components/Login.vue'
@@ -52,6 +54,11 @@ const authRoutes = [
     meta: { feature: 'collectionData' },
   },
   {
+    path: '/adminconsole/pauper-staples',
+    component: PauperStaplesDashboard,
+    meta: { feature: 'pauperStaples' },
+  },
+  {
     path: '/importcandidates',
     component: ImportCandidatesDashboard,
     meta: { feature: 'mtgImport' },
@@ -76,6 +83,7 @@ const authRoutes = [
       cardSet: route.query.cardSet || null,
       cardSlug: route.query.cardSlug || null,
       cardNumberInSet: route.query.cardNumberInSet || null,
+      returnToLocation: route.query.returnToLocation || null,
     }),
   },
   {
@@ -98,6 +106,7 @@ const routes = [
   { path: '/collections/:id', name: 'CollectionView', component: Collections, props: true },
   { path: '/collections', component: Collections },
   { path: '/settings', component: Settings },
+  { path: '/inventory', component: Inventory },
   { path: '/login', component: Login },
   { path: '/register', component: Register },
   { path: '/forgot-account', component: ForgotAccountInfo },

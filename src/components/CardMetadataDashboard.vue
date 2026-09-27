@@ -16,6 +16,8 @@ const {
 
 const searchText = ref('');
 
+const returnToLocationFromProps = ref('');
+
 function parseSetNameFromFinish(finish) {
   const match = finish.match(/(\w*)\s+#/);
   return match ? match[1] : null;
@@ -25,7 +27,8 @@ const props = defineProps({
   cardId: { type: [String, Number], default: null },
   cardSlug: { type: String, default: null },
   cardSet: { type: String, default: null },
-  cardNumberInSet: { type: String, default: null }
+  cardNumberInSet: { type: String, default: null },
+  returnToLocation: { type: String, default: '' }
 });
 
 const priceHeaders = [
@@ -91,6 +94,12 @@ function switchToDeckDisplay(deck) {
   })
 }
 
+function goBackToReturnLocation() {
+  console.log('Going back to return location:', returnToLocationFromProps.value)
+  const target = returnToLocationFromProps.value.trim();
+  router.push(target || '/');
+}
+
 onMounted(async () => {
   try {
     if (props.cardId && props.cardSet && props.cardSlug && props.cardNumberInSet) {
@@ -100,6 +109,9 @@ onMounted(async () => {
           cardSlug: props.cardSlug,
           cardNumberInSet: props.cardNumberInSet
         });
+    }
+    if (props.returnToLocation) {
+        returnToLocationFromProps.value = props.returnToLocation;
     }
   }
   catch (error) {
@@ -219,12 +231,19 @@ onMounted(async () => {
       <!-- Back Button -->
       <v-row>
         <v-col cols="12">
-          <v-btn
+          <v-btn v-if="returnToLocation === '' || returnToLocation === null"
             variant="text"
             prepend-icon="mdi-arrow-left"
             @click="clearSelection"
           >
             Back to Search
+          </v-btn>
+          <v-btn v-else
+            variant="text"
+            prepend-icon="mdi-arrow-left"
+            @click="goBackToReturnLocation"
+          >
+            Back
           </v-btn>
         </v-col>
       </v-row>

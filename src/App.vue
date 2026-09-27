@@ -82,7 +82,7 @@ const toggleDashboard = () => {
     <!-- Main Content -->
     <v-main class="main-content">
       <div class="page-container">
-        <RouterView />
+        <RouterView :key="$route.fullPath"/>
       </div>
     </v-main>
 

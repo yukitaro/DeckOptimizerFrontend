@@ -8,6 +8,12 @@
           <v-card-text>View and manage issues, defects, enhancement/feature requests, etc.</v-card-text>
         </v-card>
       </v-col>
+      <v-col cols="12" md="6">
+        <v-card to="/adminconsole/pauper-staples" class="hoverable">
+          <v-card-title>Pauper Staples Dashboard</v-card-title>
+          <v-card-text>All your Pauper Staples needs, all the time</v-card-text>
+        </v-card>
+      </v-col>      
     </v-row>
     <v-row>
       <v-col cols="12" md="6">

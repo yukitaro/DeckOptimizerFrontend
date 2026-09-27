@@ -17,7 +17,7 @@ import {
   mapColorCodeToName,
 } from '@/utils/deckUtils'
 import MultiDeckComparison from './MultiDeckComparison.vue';
-import { getKnownArchetypes, importDeckDataFromUrl, storeDeck, storeDeckFromDTO } from '@/api/deckClient';
+import { getKnownArchetypes, importDeckDataFromUrl, importDeckDataFromUrlForRound, storeDeck, storeDeckFromDTO } from '@/api/deckClient';
 import { useSiteWideRouter } from '@/composables/useSitewideRouter';
 
 const route = useRoute()
@@ -36,6 +36,7 @@ const deckName = ref('')
 const deckDescription = ref('')
 const deckSomething = ref('')
 const externalLink = ref('')
+const externalLinkForRound = ref('')
 const archetype = ref('')
 const deckFormat = ref('')
 const errorMessages = ref([])
@@ -48,9 +49,11 @@ const showConfirmDialog = ref(false)
 const allowFreeform = ref(false)
 const deckVisibility = ref('Public')
 
-const { cardsInSelectedDeck, deleteDeck, getDeckArchetypesInDB, getDecksFromDB, handleSingleDeckChange, isLoadingRecentDecks, listOfStoredDecks, reloadStoredDecks, recentlyImportedDecks } = useDeckData()
+const { cardsInSelectedDeck, deleteDeck, getDeckArchetypesInDB, getDecksFromDB, handleSingleDeckChange, isLoadingRecentDecks, listOfStoredDecks, reloadStoredDecks, recentlyImportedDecks, cardsInSideboardOfSelectedDeck } = useDeckData()
 
 const deckSearch = ref('')
+const numberOfDecksToRetrieve = ref(500)
+const minimumNumberOfWins = ref(4)
 
 const filteredDecks = computed(() => {
   const query = deckSearch.value.toLowerCase()
@@ -85,7 +88,7 @@ const { routeToCardMetadata } = useSiteWideRouter();
 
 // Grouped cards for deck display tabs
 const groupedCards = computed(() => {
-  const groups = {};
+  const groups: Record<string, any[]> = {};
 
   // Initialize empty arrays for each type
   typeHierarchy.forEach(type => {
@@ -184,14 +187,14 @@ const activeCard = computed(() => {
 watch(showErrorSnackbar, (val) => {
   if (val) {
     setTimeout(() => {
-      showErrorSnackbar.value = false;
+      showErrorSnackbar.value = false;1
     }, 8000);
   }
 });
 
 watch(tab, async (newTab) => {
   if (newTab === 'Deck Management') {
-    await getDecksFromDB()
+    await getDecksFromDB(numberOfDecksToRetrieve.value, minimumNumberOfWins.value)
     // Fetch archetypes
     try {
       const archetypes = await getDeckArchetypesInDB()
@@ -229,7 +232,7 @@ async function loadDeckById(deckId) {
 
   // Make sure decks are loaded in state
   if (!listOfStoredDecks.value || listOfStoredDecks.value.length === 0) {
-    await getDecksFromDB();
+    await getDecksFromDB(numberOfDecksToRetrieve.value, minimumNumberOfWins.value);
   }
 
   const idNum = Number(deckId);
@@ -264,7 +267,7 @@ async function importCardsForDeck() {
             ? await storeDeck({
                 name: deckName.value,
                 description: deckDescription.value,
-                mainboard: deckSomething.value,
+                cardList: deckSomething.value,
                 sourceUrl: externalLink.value,
                 format: deckFormat.value,
                 archetype: selectedArchetypeName.value || archetypeQuery.value || null,
@@ -376,6 +379,21 @@ function buildDecklistText(mainboard = [], sideboard = []) {
   return main + (side ? `\n\nSideboard:\n${side}` : '');
 }
 
+async function scrapeUrlForRound() {
+  isScraping.value = true;
+  try {
+    const response = await importDeckDataFromUrlForRound(externalLinkForRound.value);
+    if (response.status === 200) {
+      toastMessage.value = `Import succeeded! Imported ${response.data.imported_count} decks.`;
+      showToast.value = true;
+    } else if (!response || !response.data) {
+      throw new Error('Failed scraping from Round')
+    }
+  } finally {
+    isScraping.value = false;
+  }
+}
+
 async function scrapeUrl() {
   isScraping.value = true;
   console.log('Scraping URL:', externalLink.value);
@@ -473,6 +491,8 @@ const visibleSuggestions = computed(() => {
 
 async function importFromClipboard() {
     try {
+        isSuccessfullyScraped.value = false;
+      
         const text = await navigator.clipboard.readText();
         const data = JSON.parse(text);
 
@@ -481,6 +501,7 @@ async function importFromClipboard() {
         deckSomething.value = data.deckData || "";
         externalLink.value = data.deckLink || "";
         deckFormat.value = data.format || "";
+        archetypeQuery.value = data.deckArchetype || "";
         selectedArchetypeName.value = data.deckArchetype || "";
         selectedArchetypeId.value = data.archetypeId || null;
         deckVisibility.value = data.deckVisibility || "private";
@@ -493,7 +514,7 @@ async function importFromClipboard() {
 }
 
 onMounted(async () => {
-    await getDecksFromDB()
+    await getDecksFromDB(numberOfDecksToRetrieve.value, minimumNumberOfWins.value)
     await getKnownArchetypesFromDB()
     await getDeckArchetypesInDB()
     isReady.value = true
@@ -537,125 +558,240 @@ onMounted(async () => {
         >
         Errors occurred during import. <span class="view-details">View details</span>
         </div>        
-        <v-card class="deck-import-card" v-if="tab==='Deck Import'">
-            <v-card-text class="pa-6">
-              <div class="deck-import-header mb-6">
-                <h2 class="text-h4 font-weight-bold text-primary mb-2">Import New Deck</h2>
-                <p class="text-subtitle-1 text-medium-emphasis">
-                  Create a new deck by filling in the details and pasting your decklist
-                </p>
-              </div>
-              <v-form>
-                <v-row class="deck-import-layout" no-gutters align="start">
-                  <!-- 🧭 Left Column: Deck Info + Decklist Input -->
-                  <v-col cols="12" lg="4" class="deck-info-panel">
-                    <div class="info-panel-content">
-                      <!-- Deck Info Inputs -->
-                      <h3 class="text-h6 font-weight-medium mb-4 text-primary">Deck Information</h3>
-                      
-                      <v-text-field v-model="deckName" label="Deck Name" variant="outlined" density="comfortable" class="deck-input mb-4"
-                        prepend-inner-icon="mdi-cards-variant" required :rules="[v => !!v || 'Deck name is required']" />
+<v-card class="deck-import-card" v-if="tab === 'Deck Import'">
+  <v-card-text class="pa-6">
+    <!-- Header -->
+    <div class="d-flex justify-space-between align-center mb-6">
+      <div>
+        <h2 class="text-h4 font-weight-bold text-primary mb-1">Import New Deck</h2>
+        <p class="text-subtitle-1 text-medium-emphasis mb-0">
+          Paste a decklist, parse from clipboard, or scrape an external URL.
+        </p>
+      </div>
 
-                      <v-text-field v-model="deckDescription" label="Deck Description" variant="outlined" density="comfortable"
-                        class="deck-input mb-4" prepend-inner-icon="mdi-text" required :rules="[v => !!v || 'Description is required']" />
+      <!-- Quick Action: Top Bar for Clipboard -->
+      <v-btn
+        color="secondary"
+        variant="tonal"
+        prepend-icon="mdi-clipboard-arrow-down"
+        @click="importFromClipboard"
+      >
+        Import From Clipboard
+      </v-btn>
+    </div>
 
-                      <v-text-field v-model="externalLink" label="Deck Link (Optional)" variant="outlined" density="comfortable"
-                        class="deck-input mb-6" prepend-inner-icon="mdi-link" hint="Link to deck on external site (MTGGoldfish, Archidekt, etc.)" persistent-hint />
-                        <v-col cols="3">
-                          <v-btn
-                            :loading="isScraping"
-                            :disabled="!externalLink || isScraping"
-                            color="primary"
-                            block
-                            @click="scrapeUrl">
-                            Scrape
-                          </v-btn>
-                        </v-col>
-                        <v-col cols="3">
-                          <v-btn @click="importFromClipboard">Import Deck From Clipboard</v-btn>
-                        </v-col>
-                      <v-row>
-                        <v-col cols="6" class="position-relative">
-                          <v-text-field
-                            v-model="archetypeQuery"
-                            label="Archetype (Optional)"
-                            variant="outlined"
-                            density="comfortable"
-                            class="deck-input mb-2"
-                            hint="Mono Blue Terror, Rakdos Madness, Tron, etc."
-                            persistent-hint
-                            @input="onArchetypeInput"
-                            @blur="onArchetypeBlur"
-                            :append-outer-icon="selectedArchetypeId ? 'mdi-check' : ''"
-                            autocomplete="off"
-                          />
-                          <v-list v-if="showSuggestions" class="autocomplete-list pa-0" style="max-height:240px; overflow:auto;">
-                            <v-list-item v-for="a in visibleSuggestions" :key="a.id" @mousedown.prevent="pickArchetype(a)">
-                              <v-list-item-content>
-                                <v-list-item-title>{{ a.name }}</v-list-item-title>
-                                <v-list-item-subtitle class="text--secondary">{{ a.format }}</v-list-item-subtitle>
-                              </v-list-item-content>
-                            </v-list-item>
-                            <v-list-item v-if="!visibleSuggestions.length">
-                              <v-list-item-content>
-                                <v-list-item-title class="text--disabled">No matches</v-list-item-title>
-                              </v-list-item-content>
-                            </v-list-item>
-                          </v-list>
+    <v-form>
+      <v-row class="deck-import-layout" spacing="4">
+        <!-- 🧭 Left Column: Metadata & URL Scrapers -->
+        <v-col cols="12" lg="5">
+          <h3 class="text-h6 font-weight-medium mb-4 text-primary">Deck Details</h3>
 
-                          <v-checkbox v-model="allowFreeform" label="Allow freeform archetype" class="mt-2" />
-                        </v-col>
-                        <v-col cols="6">
-                          <v-text-field v-model="deckFormat" label="Format (Default: Pauper)" variant="outlined" density="comfortable"
-                            class="deck-input mb-6" hint="Pauper, Standard, Commander, etc." persistent-hint />
-                        <v-select v-model="deckVisibility" :items="['Public', 'Private']" label="Deck Visibility" variant="outlined" density="comfortable"
-                            class="deck-input mb-6" hint="Set the visibility of the deck" persistent-hint>
-                        </v-select>
-                        </v-col>
-                      </v-row>
+          <v-text-field
+            v-model="deckName"
+            label="Deck Name"
+            variant="outlined"
+            density="comfortable"
+            class="mb-3"
+            prepend-inner-icon="mdi-cards-variant"
+            required
+            :rules="[v => !!v || 'Deck name is required']"
+          />
 
-                      <v-btn @click="importCardsForDeck" type="button" class="import-action-btn" color="primary" size="large"
-                        variant="elevated" block :disabled="!deckName || !deckDescription || !deckSomething" prepend-icon="mdi-upload">
-                        Import Deck
-                      </v-btn>
-                    </div>
-                  </v-col>
-                  <!-- 🧭 Right Column: Recently Imported Decks -->
-                  <v-col cols="12" lg="4" class="recent-decks-panel d-flex justify-end">
-                    <section>
-                      <h2>Recently Imported Decks</h2>
-                      <div v-if="isLoadingRecentDecks">Loading decks…</div>
-                      <ul v-else>
-                        <li v-for="deck in recentlyImportedDecks" :key="deck.deck_id" @click="switchToDeckDisplay(deck)" style="cursor: pointer; color: blue;">
-                          {{ deck.deck_name }} ({{ deck.format }})
-                        </li>
-                      </ul>
-                    </section>
-                  </v-col>
+          <v-text-field
+            v-model="deckDescription"
+            label="Deck Description"
+            variant="outlined"
+            density="comfortable"
+            class="mb-3"
+            prepend-inner-icon="mdi-text"
+            required
+            :rules="[v => !!v || 'Description is required']"
+          />
 
-                  <v-col cols="12" lg="4" class="decklist-panel">
-                    <div class="decklist-content mt-8">
-                      <h3 class="text-h6 font-weight-medium text-primary">Decklist</h3>
-                      <v-chip color="info" variant="outlined" size="small">
-                        <v-icon start icon="mdi-information"></v-icon>
-                        Ctrl+Enter to Import
-                      </v-chip>
-                      
-                      <v-textarea v-model="deckSomething" label="Paste your decklist here" variant="outlined" class="decklist-input"
-                        rows="24" no-resize hint="Format: 4x Lightning Bolt or 4 Lightning Bolt (one card per line)" persistent-hint
-                        @keydown.ctrl.enter.exact.prevent="importCardsForDeck">
-                        <template #prepend-inner>
-                          <div class="decklist-helper">
-                            <v-icon color="primary">mdi-format-list-numbered</v-icon>
-                          </div>
-                        </template>
-                      </v-textarea>
-                    </div>
-                  </v-col>
-                </v-row>
-              </v-form>
-            </v-card-text>
-        </v-card>
+          <!-- Integrated Scraper 1: External Deck Site -->
+          <v-text-field
+            v-model="externalLink"
+            label="External Deck URL"
+            variant="outlined"
+            density="comfortable"
+            class="mb-3"
+            prepend-inner-icon="mdi-link"
+            hint="MTGGoldfish, Archidekt, MTGDecks, etc."
+            persistent-hint
+          >
+            <template #append-inner>
+              <v-btn
+                size="small"
+                color="primary"
+                variant="flat"
+                :loading="isScraping"
+                :disabled="!externalLink || isScraping"
+                @click="scrapeUrl"
+              >
+                Scrape
+              </v-btn>
+            </template>
+          </v-text-field>
+
+          <!-- Integrated Scraper 2: Melee Round -->
+          <v-text-field
+            v-model="externalLinkForRound"
+            label="Melee.gg Tournament / Round URL"
+            variant="outlined"
+            density="comfortable"
+            class="mb-3"
+            prepend-inner-icon="mdi-sword-cross"
+            hint="Scrape all decks from a Melee.gg pair/round"
+            persistent-hint
+          >
+            <template #append-inner>
+              <v-btn
+                size="small"
+                color="primary"
+                variant="flat"
+                :loading="isScraping"
+                :disabled="!externalLinkForRound || isScraping"
+                @click="scrapeUrlForRound"
+              >
+                Scrape Round
+              </v-btn>
+            </template>
+          </v-text-field>
+
+          <!-- Archetype & Settings Row -->
+          <v-row class="mt-1">
+            <v-col cols="12" sm="6" class="position-relative">
+              <v-text-field
+                v-model="archetypeQuery"
+                label="Archetype (Optional)"
+                variant="outlined"
+                density="comfortable"
+                hint="Mono Blue Terror, Burn, etc."
+                persistent-hint
+                @input="onArchetypeInput"
+                @blur="onArchetypeBlur"
+                :append-inner-icon="selectedArchetypeId ? 'mdi-check-circle' : ''"
+                autocomplete="off"
+              />
+
+              <!-- Suggestions Dropdown -->
+              <v-paper
+                v-if="showSuggestions"
+                elevation="4"
+                class="position-absolute w-100 mt-1"
+                style="z-index: 100; max-height: 200px; overflow-y: auto;"
+              >
+                <v-list density="compact">
+                  <v-list-item
+                    v-for="a in visibleSuggestions"
+                    :key="a.id"
+                    @mousedown.prevent="pickArchetype(a)"
+                  >
+                    <v-list-item-title>{{ a.name }}</v-list-item-title>
+                    <v-list-item-subtitle>{{ a.format }}</v-list-item-subtitle>
+                  </v-list-item>
+                  <v-list-item v-if="!visibleSuggestions.length">
+                    <v-list-item-title class="text-disabled">No matches</v-list-item-title>
+                  </v-list-item>
+                </v-list>
+              </v-paper>
+
+              <v-checkbox
+                v-model="allowFreeform"
+                label="Allow freeform archetype"
+                density="compact"
+                hide-details
+                class="mt-1"
+              />
+            </v-col>
+
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="deckFormat"
+                label="Format"
+                variant="outlined"
+                density="comfortable"
+                class="mb-3"
+                hint="Pauper, Standard, etc."
+                persistent-hint
+              />
+              <v-select
+                v-model="deckVisibility"
+                :items="['Public', 'Private']"
+                label="Visibility"
+                variant="outlined"
+                density="comfortable"
+              />
+            </v-col>
+          </v-row>
+        </v-col>
+
+        <!-- 🧭 Middle Column: Decklist Editor -->
+        <v-col cols="12" lg="2">
+          <div class="d-flex justify-space-between align-center mb-2">
+            <h3 class="text-h6 font-weight-medium text-primary mb-0">Decklist</h3>
+            <v-chip color="info" variant="tonal" size="x-small" prepend-icon="mdi-keyboard">
+              Ctrl+Enter to Import
+            </v-chip>
+          </div>
+
+          <v-textarea
+            v-model="deckSomething"
+            label="Paste decklist here"
+            variant="outlined"
+            rows="18"
+            no-resize
+            hint="Example: 4 Lightning Bolt"
+            persistent-hint
+            @keydown.ctrl.enter.exact.prevent="importCardsForDeck"
+          />
+
+          <v-btn
+            @click="importCardsForDeck"
+            type="button"
+            color="primary"
+            size="large"
+            variant="elevated"
+            block
+            class="mt-4"
+            :disabled="!deckName || !deckDescription || !deckSomething"
+            prepend-icon="mdi-upload"
+          >
+            Import Deck
+          </v-btn>
+        </v-col>
+
+        <!-- 🧭 Right Column: Recent Decks Sidebar -->
+        <v-col cols="12" lg="3">
+          <v-card variant="outlined" class="pa-4 h-100">
+            <h3 class="text-subtitle-1 font-weight-bold mb-3 text-primary">
+              <v-icon start size="small">mdi-history</v-icon> Recently Imported
+            </h3>
+
+            <v-progress-circular v-if="isLoadingRecentDecks" indeterminate color="primary" size="24" />
+
+            <v-list v-else density="compact" class="pa-0">
+              <v-list-item
+                v-for="deck in recentlyImportedDecks"
+                :key="deck.deck_id"
+                @click="switchToDeckDisplay(deck)"
+                class="px-2 rounded mb-1"
+                nav
+              >
+                <v-list-item-title class="text-body-2 font-weight-medium text-primary">
+                  {{ deck.deck_name }}
+                </v-list-item-title>
+                <v-list-item-subtitle class="text-caption">
+                  {{ deck.format }}
+                </v-list-item-subtitle>
+              </v-list-item>
+            </v-list>
+          </v-card>
+        </v-col>
+      </v-row>
+    </v-form>
+  </v-card-text>
+</v-card>
         <v-card v-if="tab === 'Card List Test'" class="pa-4 custom-card-background">
           <!-- 🧠 Deck Display -->
           <div class="deck-display-flex">
@@ -789,6 +925,45 @@ onMounted(async () => {
             </template>
           </v-autocomplete>
 
+          <v-card>
+              <v-card-title class="d-flex align-center pb-2">
+                <v-icon class="mr-2" color="primary">mdi-cards</v-icon>
+                <span class="text-truncate">{{ selectedDeck.deck_name }}</span>
+              </v-card-title>
+
+              <v-card-text>
+                <div class="deck-meta mb-3">
+                  <v-chip
+                    v-if="selectedDeck.format"
+                    size="small"
+                    color="secondary"
+                    variant="tonal"
+                    class="mr-2 mb-2"
+                  >
+                    <v-icon start size="16">mdi-format-list-bulleted</v-icon>
+                    {{ selectedDeck.format }}
+                  </v-chip>
+                  
+                  <v-chip
+                    v-if="selectedDeck.num_cards"
+                    size="small"
+                    color="info"
+                    variant="tonal"
+                    class="mb-2"
+                  >
+                    <v-icon start size="16">mdi-cards-outline</v-icon>
+                    {{ selectedDeck.num_cards }} cards
+                  </v-chip>
+                </div>
+
+                <p v-if="selectedDeck.description" class="text-body-2 text-medium-emphasis deck-description">
+                  {{ selectedDeck.description }}
+                </p>
+                <p v-else class="text-body-2 text-disabled">
+                  No description provided
+                </p>
+              </v-card-text>              
+            </v-card>
           <!-- 🧠 Deck Display -->
           <div class="deck-display-flex">
             <!-- 👁️ Preview Pane -->
@@ -807,48 +982,76 @@ onMounted(async () => {
             </div>
 
             <!-- 📜 Deck List -->
-            <div class="card-list-container">
-              <div class="card-list">
-                <div v-for="type in typeHierarchy" :key="type">
-                  <h3>{{ type }}</h3>
-                  <div v-if="groupedCards[type].length">
-                    <div
-                      v-for="card in groupedCards[type]"
-                      :key="card.id"
-                      class="card-line"
-                    >
-                      <!-- Hidden SmartCardImage for URL testing -->
-                      <SmartCardImage
-                        v-if="card.image_url_to_use"
-                        :src="card.image_url_to_use"
-                        :card-name="card.name"
-                        style="display: none;" />
-                      
-                      <p>
-                        <strong>{{ card.card_count }}x</strong>
-                        <span class="card-name" @click="routeToCardMetadata(card, selectedDeck.deck_id, tab)" @mouseover="hoveredCard = card">
-                          {{ card.name }}
-                        </span>
-                        —
-                        <span class="card-type">{{ card.type }}</span>
-                        <span v-if="card.mana_cost">
-                          <Colors :mana_cost="getNumericalManaCost(card.mana_cost)" />
-                        </span>
-                        <span
-                          v-for="color in getColorManaCost(card.mana_cost)"
-                          :key="color"
+             <v-row>
+              <v-col cols="12" md="5">
+                <div class="card-list-container">
+                  <div class="card-list">
+                    <div v-for="type in typeHierarchy" :key="type">
+                      <h3>{{ type }}</h3>
+                      <div v-if="groupedCards[type].length">
+                        <div
+                          v-for="card in groupedCards[type]"
+                          :key="card.id"
+                          class="card-line"
                         >
-                          <Colors :color_name="mapColorCodeToName(color)" />
-                        </span>
+                          <!-- Hidden SmartCardImage for URL testing -->
+                          <SmartCardImage
+                            v-if="card.image_url_to_use"
+                            :src="card.image_url_to_use"
+                            :card-name="card.name"
+                            style="display: none;" />
+                          
+                          <p>
+                            <strong>{{ card.card_count }}x </strong>
+                            <span class="card-name" @click="routeToCardMetadata(card, selectedDeck.deck_id, tab)" @mouseover="hoveredCard = card">
+                              {{ card.name }}
+                            </span>
+                            —
+                            <span class="card-type">{{ card.type }}</span>
+                            — copies owned:
+                            <span class="card-type">{{ card.copies_owned }}</span>
+                            <span v-if="card.mana_cost">
+                              <Colors :mana_cost="getNumericalManaCost(card.mana_cost)" />
+                            </span>
+                            <span
+                              v-for="color in getColorManaCost(card.mana_cost)"
+                              :key="color"
+                            >
+                              <Colors :color_name="mapColorCodeToName(color)" />
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                      <p v-else class="empty-group">
+                        No {{ type.toLowerCase() }} cards
                       </p>
                     </div>
                   </div>
-                  <p v-else class="empty-group">
-                    No {{ type.toLowerCase() }} cards
+                </div>
+              </v-col>
+              <v-col>
+                <h3>Sideboard</h3>
+                <div v-for="card in cardsInSideboardOfSelectedDeck[0]" :key="card.card_id">
+                  <p>
+                    <strong>{{ card.card_count }}x </strong>
+                    <span class="card-name" @click="routeToCardMetadata(card, selectedDeck.deck_id, tab)" @mouseover="hoveredCard = card">
+                      {{ card.name }}
+                    </span>
+                    —
+                    <span class="card-type">{{ card.type }}</span>
+                    <span v-if="card.mana_cost">
+                      <Colors :mana_cost="getNumericalManaCost(card.mana_cost)" />
+                    </span>
+                    <span
+                      v-for="color in getColorManaCost(card.mana_cost)"
+                      :key="color"
+                    >
+                      <Colors :color_name="mapColorCodeToName(color)" />
+                    </span>
                   </p>
                 </div>
-              </div>
-            </div>
+              </v-col>
+            </v-row>
           </div>
         </v-card>
         <v-card v-if="tab === 'Deck Display 3'" class="pa-4 custom-card-background">
@@ -938,7 +1141,7 @@ onMounted(async () => {
 
     <!-- Filters -->
     <v-row>
-      <v-col cols="12" md="6">
+      <v-col cols="12" md="4">
         <v-text-field
           v-model="deckSearch"
           label="Search decks"
@@ -949,11 +1152,21 @@ onMounted(async () => {
           density="comfortable"
         />
       </v-col>
-      <v-col cols="12" md="6">
+      <v-col cols="12" md="4">
         <v-select
           v-model="selectedArchetypeFilter"
           :items="['All', ...listOfArchetypes]"
           label="Filter by Archetype"
+          prepend-inner-icon="mdi-filter-variant"
+          variant="outlined"
+          clearable
+          density="comfortable"
+        />
+      </v-col>
+      <v-col cols="12" md="4">
+        <v-text-field
+          v-model="minimumNumberOfWins"
+          label="Filter by Minimum Wins"
           prepend-inner-icon="mdi-filter-variant"
           variant="outlined"
           clearable
@@ -1087,6 +1300,9 @@ onMounted(async () => {
                 </p>
                 <p v-else class="text-body-2 text-disabled">
                   No description provided
+                </p>
+                <p>
+                  <span>Match Record: {{ deck.matchRecord }}</span>
                 </p>
               </v-card-text>
 

@@ -1,6 +1,7 @@
 // composables/useExportModal.ts
 import { ref, MaybeRefOrGetter, toValue } from 'vue'
 import { useCsvExport, CsvColumn } from './useCsvExport'
+import { exportCollection } from '@/api/collection'
 
 export interface ExportFormat {
   title: string
@@ -15,7 +16,8 @@ export const EXPORT_FORMATS: ExportFormat[] = [
 
 export function useExportModal(cardData: MaybeRefOrGetter<any[]>) {
   const isOpen = ref(false)
-  const selectedFormat = ref('default')
+  const isExporting = ref(false)
+  const selectedFormat = ref('manabox')
   const { downloadCsv } = useCsvExport<any>()
 
   function open() {
@@ -60,12 +62,34 @@ export function useExportModal(cardData: MaybeRefOrGetter<any[]>) {
     close()
   }
 
+    async function callExportCollection(target: MaybeRefOrGetter<any>) {
+      const resolved = toValue(target)
+      const collectionId = typeof resolved === 'object' ? resolved?.id : resolved
+
+      if (!collectionId) {
+        console.error('[Export Error] Invalid collection ID:', target)
+        return
+      }
+
+      try {
+        isExporting.value = true
+        await exportCollection(collectionId)
+        close()
+      } catch (error) {
+        console.error('[Export Error] Failed to export collection CSV:', error)
+      } finally {
+        isExporting.value = false
+      }
+    }
+
   return {
     isOpen,
     selectedFormat,
     formats: EXPORT_FORMATS,
     open,
     close,
+    callExportCollection,
     exportData,
+    isExporting,
   }
 }
